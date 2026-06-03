@@ -14,7 +14,10 @@ pillow==11.1.0
 
 # --- Parser backends (optional at runtime; router degrades gracefully) ---
 docling==2.15.1          # IBM open-source layout-aware parser (self-hosted)
-llama-cloud-services==0.6.0   # LlamaParse client (API)
+llama-cloud-services==0.6.94  # LlamaParse client (API). 0.6.0 left llama-cloud
+                              # unpinned, so pip resolved llama-cloud 1.x which
+                              # dropped a symbol 0.6.0 imported -> ImportError.
+llama-cloud==0.1.46           # pin the transitive dep to the verified pair
 
 # --- LLM provider SDKs (optional; loaded lazily by provider) ---
 openai==1.59.6           # OpenAI + Azure OpenAI
