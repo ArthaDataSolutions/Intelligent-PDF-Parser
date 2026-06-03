@@ -1,16 +1,22 @@
 """FastAPI service.
 
 Endpoints:
-  GET  /health          — liveness + active config summary
-  GET  /config          — which backends/providers are available right now
-  POST /parse           — PDF -> structured markdown (no LLM Q&A)
-  POST /process         — PDF -> parse + analyst Q&A (JSON)
-  POST /process/markdown— PDF -> parse + Q&A, returns the Q&A as a Markdown file
+  GET  /                 — test UI (single-page console)
+  GET  /health           — liveness + active config summary
+  GET  /config           — which backends/providers are available right now
+  GET  /samples          — list bundled sample PDFs
+  POST /parse            — PDF -> structured markdown (no LLM Q&A)
+  POST /parse/sample     — parse a bundled sample by name (no LLM Q&A)
+  POST /process          — PDF -> parse + analyst Q&A (JSON)
+  POST /process/sample   — parse + Q&A for a bundled sample by name
+  POST /process/markdown — PDF -> parse + Q&A, returns the Q&A as a Markdown file
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from .config import get_settings
 from .llm.factory import build_llm_provider, build_vision_provider
@@ -19,7 +25,10 @@ from .parsers.docling_parser import DoclingParser
 from .parsers.llamaparse_parser import LlamaParseParser
 from .pipeline import Pipeline
 from .qa.generator import QAGenerator
+from .samples import list_samples, read_sample
 from .schemas import ProcessResponse
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -46,6 +55,15 @@ async def _read_pdf(file: UploadFile) -> bytes:
     if not raw.startswith(b"%PDF"):
         raise HTTPException(400, "File does not look like a valid PDF")
     return raw
+
+
+@app.get("/", include_in_schema=False)
+async def ui() -> FileResponse:
+    """Serve the single-page test console."""
+    index = STATIC_DIR / "index.html"
+    if not index.is_file():
+        raise HTTPException(404, "UI not built")
+    return FileResponse(index)
 
 
 @app.get("/health")
@@ -78,10 +96,44 @@ async def config() -> dict:
     }
 
 
+@app.get("/samples")
+async def samples() -> dict:
+    """List bundled sample PDFs available to parse without uploading."""
+    return {"samples": list_samples()}
+
+
+def _load_sample(name: str) -> bytes:
+    try:
+        raw = read_sample(name)
+    except FileNotFoundError:
+        raise HTTPException(404, f"Sample not found: {name}") from None
+    _check_size(raw)
+    return raw
+
+
 @app.post("/parse", response_model=ProcessResponse)
 async def parse(file: UploadFile = File(...)) -> ProcessResponse:
     raw = await _read_pdf(file)
     return await Pipeline(settings).parse_only(raw, file.filename or "upload.pdf")
+
+
+@app.post("/parse/sample", response_model=ProcessResponse)
+async def parse_sample(name: str = Form(...)) -> ProcessResponse:
+    raw = _load_sample(name)
+    return await Pipeline(settings).parse_only(raw, name)
+
+
+@app.post("/process/sample", response_model=ProcessResponse)
+async def process_sample(
+    name: str = Form(...),
+    num_questions: int = Form(12),
+) -> ProcessResponse:
+    raw = _load_sample(name)
+    try:
+        return await Pipeline(settings).process(raw, name, num_questions=num_questions)
+    except Exception as exc:
+        log.error("process_sample_failed", error=str(exc))
+        raise HTTPException(502, f"Processing failed: {exc}") from exc
 
 
 @app.post("/process", response_model=ProcessResponse)
