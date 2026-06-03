@@ -20,15 +20,17 @@ It is built around two ideas that reflect the state of document AI as of mid-202
 
 Recent benchmarks converge on a few points. Vision-LLM parsers produce the
 cleanest output on visually complex documents and are the only category that reads
-handwriting reliably; Gemini-class and GPT-5.4-class models lead on raw accuracy
+handwriting reliably; Gemini-class and GPT-5.5-class models lead on raw accuracy
 while LlamaParse hits the cost/quality sweet spot (~$0.003/page) for clean printed
 docs. **Docling (IBM, open-source) is strong on tables/layout and fully
 self-hostable but does not handle handwriting.** Frontier multimodal models
-(GPT-5.4, Claude) can now read dense scans and handwritten forms in a single pass,
-and vendor guidance is explicit that for handwriting / tiny text / low-quality
-scans you should send the page image at full ("original") detail and keep
-transcription temperature at 0. Those findings are baked directly into the router
-and the vision prompt. Sources are listed at the bottom of this file.
+(GPT-5.5, Claude Opus 4.x) can now read dense scans and handwritten forms in a single
+pass, and vendor guidance is explicit that for handwriting / tiny text / low-quality
+scans you should send the page image at full ("original") detail. These frontier
+models are deterministic by default and no longer expose a `temperature`/`top_p`
+knob (the API rejects them), so the provider layer omits those parameters. Those
+findings are baked directly into the router and the vision prompt. Sources are
+listed at the bottom of this file.
 
 This is also the answer to the **Snowflake handwriting problem** (notes read
 inaccurately today): instead of OCR on a text layer that doesn't exist, the
@@ -124,6 +126,9 @@ Everything is env-driven (see `.env.example`). The most important knobs:
 |----------|---------|---------|
 | `LLM_PROVIDER` | `anthropic` | Provider for Q&A + handwriting reasoning (`openai`/`anthropic`/`azure`/`ollama`) |
 | `VISION_PROVIDER` | = `LLM_PROVIDER` | Provider for page-image understanding |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Claude model for Q&A (text reasoning) |
+| `ANTHROPIC_VISION_MODEL` | `claude-opus-4-8` | Claude model for handwriting/page-image reading |
+| `OPENAI_MODEL` / `OPENAI_VISION_MODEL` | `gpt-5.5` | OpenAI model for Q&A / vision |
 | `PARSER_BACKEND` | `auto` | `auto` router, or force `docling`/`llamaparse`/`vision_llm` |
 | `PARSER_CONFIDENCE_THRESHOLD` | `0.62` | Cheap-backend pages below this are re-read by the vision LLM |
 | `FORCE_VISION_LLM` | `false` | Send every page through the vision LLM (max accuracy/cost) |
@@ -175,6 +180,6 @@ provider factory's config validation, and Q&A generation/Markdown rendering.
 - [LlamaIndex — Best Document Parsing Software (legacy OCR → agentic AI)](https://www.llamaindex.ai/insights/best-document-parsing-software)
 - [Firecrawl — Best PDF Parsers for AI and RAG Workflows in 2026](https://www.firecrawl.dev/blog/best-pdf-parsers)
 - [Reducto — Docling vs LlamaParse vs Unstructured vs Reducto comparison](https://llms.reducto.ai/document-parser-comparison)
-- [OpenAI Cookbook — Getting the Most out of GPT-5.4 for Vision & Document Understanding](https://developers.openai.com/cookbook/examples/multimodal/document_and_multimodal_understanding_tips)
+- [OpenAI Cookbook — Getting the Most out of GPT-5.5 for Vision & Document Understanding](https://developers.openai.com/cookbook/examples/multimodal/document_and_multimodal_understanding_tips)
 - [LlamaIndex — Best Vision Language Models & Agentic OCR Tools](https://www.llamaindex.ai/insights/best-vision-language-models)
 - [Applied AI — The State of PDF Parsing (800+ docs, 7 frontier LLMs)](https://www.applied-ai.com/briefings/pdf-parsing-benchmark/)
