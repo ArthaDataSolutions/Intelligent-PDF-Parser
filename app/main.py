@@ -71,9 +71,36 @@ async def health() -> dict:
     return {"status": "ok", "version": app.version, "env": settings.app_env}
 
 
+def _provider_models(s) -> dict[str, dict[str, str]]:
+    """Per-provider text/vision model identifiers (no secrets)."""
+    return {
+        "openai": {"text": s.openai_model, "vision": s.openai_vision_model},
+        "anthropic": {"text": s.anthropic_model, "vision": s.anthropic_vision_model},
+        "azure": {
+            "text": s.azure_openai_deployment or "—",
+            "vision": s.azure_openai_vision_deployment or s.azure_openai_deployment or "—",
+        },
+        "ollama": {"text": s.ollama_model, "vision": s.ollama_vision_model},
+    }
+
+
+def _key_status(s) -> dict[str, bool]:
+    """Whether each provider's credentials are present (never the values)."""
+    return {
+        "openai": bool(s.openai_api_key),
+        "anthropic": bool(s.anthropic_api_key),
+        "azure": bool(s.azure_openai_api_key and s.azure_openai_endpoint),
+        "ollama": True,  # local; no key required
+        "llama_cloud": bool(s.llama_cloud_api_key),
+    }
+
+
 @app.get("/config")
 async def config() -> dict:
-    """Report which backends/providers are usable with the current env."""
+    """Report every backend/provider setting usable with the current env.
+
+    Secrets are never returned — only booleans indicating whether a key is set.
+    """
     def _provider_ok(builder) -> bool:
         try:
             builder(settings)
@@ -81,18 +108,49 @@ async def config() -> dict:
         except Exception:
             return False
 
+    models = _provider_models(settings)
+    llm = settings.llm_provider
+    vis = settings.effective_vision_provider
+
     return {
-        "parser_backend": settings.parser_backend,
-        "force_vision_llm": settings.force_vision_llm,
-        "confidence_threshold": settings.parser_confidence_threshold,
+        "app": {
+            "env": settings.app_env,
+            "log_level": settings.log_level,
+            "max_upload_mb": settings.max_upload_mb,
+        },
+        "parsing": {
+            "parser_backend": settings.parser_backend,
+            "force_vision_llm": settings.force_vision_llm,
+            "confidence_threshold": settings.parser_confidence_threshold,
+            "vision_image_detail": settings.vision_image_detail,
+            "vision_render_dpi": settings.vision_render_dpi,
+        },
         "backends_available": {
             "docling": DoclingParser().available(),
             "llamaparse": LlamaParseParser().available(),
             "vision_llm": _provider_ok(build_vision_provider),
         },
-        "llm_provider": settings.llm_provider,
+        "providers": {
+            "llm": {
+                "name": llm,
+                "model": models[llm]["text"],
+                "available": _provider_ok(build_llm_provider),
+            },
+            "vision": {
+                "name": vis,
+                "model": models[vis]["vision"],
+                "available": _provider_ok(build_vision_provider),
+            },
+        },
+        "models": models,
+        "keys_present": _key_status(settings),
+        # Back-compat flat fields (kept for existing clients/tests):
+        "parser_backend": settings.parser_backend,
+        "force_vision_llm": settings.force_vision_llm,
+        "confidence_threshold": settings.parser_confidence_threshold,
+        "llm_provider": llm,
         "llm_provider_available": _provider_ok(build_llm_provider),
-        "vision_provider": settings.effective_vision_provider,
+        "vision_provider": vis,
     }
 
 

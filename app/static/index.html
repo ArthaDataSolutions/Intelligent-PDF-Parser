@@ -100,6 +100,8 @@
   }
   .chip.on { color: var(--ok); border-color: oklch(40% 0.08 150); }
   .chip.off { color: var(--faint); }
+  .prov { padding: 0.5rem 0.6rem; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; gap: 0.35rem; }
+  .prov + .prov { margin-top: 0.5rem; }
   .divider { height: 1px; background: var(--line); margin: 0.9rem 0; border: 0; }
   .sub-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--faint); margin: 0 0 0.5rem; }
 
@@ -314,31 +316,56 @@ async function loadHealth() {
 function chip(on, label) {
   return `<span class="chip ${on ? "on" : "off"}"><span class="dot ${on ? "ok" : "bad"}"></span>${esc(label)}</span>`;
 }
+function kvRow(k, v) { return `<div class="row"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`; }
+function provBlock(title, p) {
+  return `<div class="prov">
+    <div class="row"><span class="k">${esc(title)}</span>${chip(p.available, p.available ? "ready" : "no key")}</div>
+    <div class="row"><span class="k" style="padding-left:0.6rem;color:var(--faint)">provider</span><span class="v">${esc(p.name)}</span></div>
+    <div class="row"><span class="k" style="padding-left:0.6rem;color:var(--faint)">model</span><span class="v">${esc(p.model)}</span></div>
+  </div>`;
+}
 async function loadConfig() {
   const body = $("#cfg-body");
   body.innerHTML = `<div class="placeholder" style="padding:1.5rem">loading…</div>`;
   try {
     const d = await (await fetch("/config")).json();
-    const b = d.backends_available || {};
+    const app = d.app || {}, parsing = d.parsing || {}, b = d.backends_available || {};
+    const prov = d.providers || {}, models = d.models || {}, keys = d.keys_present || {};
+    const modelRows = Object.entries(models).map(([name, m]) =>
+      `<div class="row"><span class="k">${esc(name)} ${keys[name] === false ? "<span class='badge' style='color:var(--faint)'>no key</span>" : ""}</span>
+       <span class="v" title="text / vision">${esc(m.text)}${m.vision !== m.text ? " · " + esc(m.vision) : ""}</span></div>`).join("");
     body.innerHTML = `
+      <p class="sub-label">App</p>
       <div class="kv">
-        <div class="row"><span class="k">Parser backend</span><span class="v">${esc(d.parser_backend)}</span></div>
-        <div class="row"><span class="k">Force vision LLM</span><span class="v">${d.force_vision_llm ? "on" : "off"}</span></div>
-        <div class="row"><span class="k">Confidence threshold</span><span class="v">${esc(d.confidence_threshold)}</span></div>
+        ${kvRow("Environment", app.env)}
+        ${kvRow("Log level", app.log_level)}
+        ${kvRow("Max upload", (app.max_upload_mb ?? "—") + " MB")}
+      </div>
+      <hr class="divider" />
+      <p class="sub-label">Parsing</p>
+      <div class="kv">
+        ${kvRow("Parser backend", parsing.parser_backend)}
+        ${kvRow("Force vision LLM", parsing.force_vision_llm ? "on" : "off")}
+        ${kvRow("Confidence threshold", parsing.confidence_threshold)}
+        ${kvRow("Vision image detail", parsing.vision_image_detail)}
+        ${kvRow("Vision render DPI", parsing.vision_render_dpi)}
       </div>
       <hr class="divider" />
       <p class="sub-label">Parser backends</p>
       <div class="kv">
         <div class="row"><span class="k">Docling</span>${chip(b.docling, b.docling ? "ready" : "n/a")}</div>
-        <div class="row"><span class="k">LlamaParse</span>${chip(b.llamaparse, b.llamaparse ? "ready" : "n/a")}</div>
-        <div class="row"><span class="k">Vision LLM</span>${chip(b.vision_llm, b.vision_llm ? "ready" : "n/a")}</div>
+        <div class="row"><span class="k">LlamaParse</span>${chip(b.llamaparse, b.llamaparse ? (keys.llama_cloud ? "ready" : "ready") : (keys.llama_cloud ? "n/a" : "no key"))}</div>
+        <div class="row"><span class="k">Vision LLM</span>${chip(b.vision_llm, b.vision_llm ? "ready" : "no key")}</div>
       </div>
       <hr class="divider" />
-      <p class="sub-label">Providers</p>
+      <p class="sub-label">Active providers</p>
       <div class="kv">
-        <div class="row"><span class="k">LLM (${esc(d.llm_provider)})</span>${chip(d.llm_provider_available, d.llm_provider_available ? "ready" : "no key")}</div>
-        <div class="row"><span class="k">Vision provider</span><span class="v">${esc(d.vision_provider)}</span></div>
-      </div>`;
+        ${prov.llm ? provBlock("LLM (Q&A)", prov.llm) : ""}
+        ${prov.vision ? provBlock("Vision (parsing)", prov.vision) : ""}
+      </div>
+      <hr class="divider" />
+      <p class="sub-label">All provider models</p>
+      <div class="kv">${modelRows}</div>`;
   } catch (e) {
     body.innerHTML = `<div class="err">config error: ${esc(e.message)}</div>`;
   }
