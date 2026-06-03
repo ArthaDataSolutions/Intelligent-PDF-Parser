@@ -25,15 +25,15 @@ class Settings(BaseSettings):
     llm_provider: ProviderName = "anthropic"
     vision_provider: ProviderName | None = None  # falls back to llm_provider
 
-    # OpenAI
+    # OpenAI (current frontier line, June 2026: GPT-5.5 flagship, vision-capable)
     openai_api_key: str | None = None
-    openai_model: str = "gpt-5.4"
-    openai_vision_model: str = "gpt-5.4"
+    openai_model: str = "gpt-5.5"
+    openai_vision_model: str = "gpt-5.5"
 
-    # Anthropic
+    # Anthropic — strongest model for handwriting/vision, sonnet for cheaper Q&A
     anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-opus-4-6"
-    anthropic_vision_model: str = "claude-opus-4-6"
+    anthropic_model: str = "claude-sonnet-4-6"
+    anthropic_vision_model: str = "claude-opus-4-8"
 
     # Azure OpenAI
     azure_openai_api_key: str | None = None
