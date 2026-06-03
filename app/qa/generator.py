@@ -17,7 +17,10 @@ from __future__ import annotations
 import json
 
 from ..llm.base import LLMMessage, LLMProvider
+from ..logging_conf import get_logger
 from ..schemas import ParseResult, QADocument, QAItem
+
+log = get_logger("qa.generator")
 
 _SYSTEM = """You are a financial-disclosure analyst assistant. You prepare a CFO
 for tough questions from journalists and sell-side analysts (WSJ, NYT, etc.)
@@ -81,6 +84,15 @@ class QAGenerator:
         max_chars: int = 60_000,
     ) -> QADocument:
         doc_md = parse.markdown[:max_chars]
+        log.info("qa_generating", num_questions=num_questions, doc_chars=len(doc_md))
+        log.debug(
+            "qa_request",
+            provider=self._provider.name,
+            model=getattr(self._provider, "text_model", ""),
+            requested_questions=num_questions,
+            max_chars=max_chars,
+            truncated=len(parse.markdown) > max_chars,
+        )
         messages = [
             LLMMessage(role="system", content=_SYSTEM),
             LLMMessage(
@@ -91,6 +103,7 @@ class QAGenerator:
         raw = await self._provider.chat(
             messages, temperature=0.2, max_tokens=4096, json_mode=True
         )
+        log.debug("qa_response_received", chars=len(raw))
         data = self._extract_json(raw)
 
         items: list[QAItem] = []
@@ -101,6 +114,7 @@ class QAGenerator:
                 # tolerate a single malformed item rather than failing the batch
                 continue
 
+        log.info("qa_generated", items=len(items))
         return QADocument(
             company=data.get("company"),
             period=data.get("period"),

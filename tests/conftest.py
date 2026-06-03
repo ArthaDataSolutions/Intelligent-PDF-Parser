@@ -11,8 +11,29 @@ import pytest
 from PIL import Image
 
 from app.llm.base import LLMMessage, LLMProvider
+from app.logging_conf import configure_logging
 from app.parsers.base import ParserAdapter
 from app.schemas import ContentKind, PageResult
+
+# Install the structlog config (incl. the per-run DB log sink) once for the
+# whole test session, independent of whether app.main has been imported. The
+# real service does this at startup; this keeps tests order-independent.
+configure_logging("INFO")
+
+
+@pytest.fixture(autouse=True)
+def isolated_db(tmp_path, monkeypatch):
+    """Point every test's run store at a throwaway SQLite file.
+
+    Clears the settings cache so the new ``DB_PATH`` is picked up, both before
+    and after, keeping the real ./data store untouched during tests.
+    """
+    from app.config import get_settings
+
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 class FakeLLM(LLMProvider):

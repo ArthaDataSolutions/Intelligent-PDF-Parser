@@ -10,13 +10,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 from ..config import Settings, get_settings
 from ..llm.base import LLMProvider
 from ..llm.factory import build_vision_provider
+from ..logging_conf import get_logger
 from ..schemas import ContentKind, PageResult
 from ..utils.pdf import render_page_png
 from .base import ParserAdapter
+
+log = get_logger("parser.vision")
 
 _META_MARKER = "===META==="
 
@@ -84,10 +88,23 @@ class VisionLLMParser(ParserAdapter):
         return self._provider
 
     async def _parse_one(self, doc_bytes: bytes, idx: int) -> PageResult:
+        render_t0 = time.perf_counter()
         png = await asyncio.to_thread(
             render_page_png, doc_bytes, idx, self._settings.vision_render_dpi
         )
-        raw = await self._get_provider().vision(
+        render_ms = round((time.perf_counter() - render_t0) * 1000, 1)
+        provider = self._get_provider()
+        log.debug(
+            "vision_page_rendered",
+            page=idx + 1,
+            dpi=self._settings.vision_render_dpi,
+            image_bytes=len(png),
+            render_ms=render_ms,
+            detail=self._settings.vision_image_detail,
+            provider=provider.name,
+            model=getattr(provider, "vision_model", ""),
+        )
+        raw = await provider.vision(
             _PROMPT,
             [png],
             system=_SYSTEM,
@@ -98,6 +115,15 @@ class VisionLLMParser(ParserAdapter):
         has_hw = bool(meta.get("has_handwriting", False))
         confidence = float(meta.get("confidence", 0.7))
         illegible = int(meta.get("illegible_count", 0))
+        log.debug(
+            "vision_page_meta",
+            page=idx + 1,
+            has_handwriting=has_hw,
+            confidence=round(confidence, 3),
+            illegible_count=illegible,
+            markdown_chars=len(md),
+            meta_found=bool(meta),
+        )
         notes = []
         if illegible:
             notes.append(f"{illegible} illegible token(s) flagged by model")
@@ -115,10 +141,26 @@ class VisionLLMParser(ParserAdapter):
         self, doc_bytes: bytes, page_indices: list[int]
     ) -> list[PageResult]:
         # Bounded concurrency to avoid hammering provider rate limits.
-        sem = asyncio.Semaphore(4)
+        sem = asyncio.Semaphore(self._settings.vision_max_concurrency)
+        total = len(page_indices)
+        done = [0]
+        log.info(
+            "vision_transcribe_start",
+            pages=total,
+            concurrency=self._settings.vision_max_concurrency,
+            dpi=self._settings.vision_render_dpi,
+            detail=self._settings.vision_image_detail,
+        )
 
         async def _guarded(idx: int) -> PageResult:
             async with sem:
-                return await self._parse_one(doc_bytes, idx)
+                pr = await self._parse_one(doc_bytes, idx)
+                done[0] += 1
+                log.info(
+                    "page_transcribed", page=idx + 1, done=done[0], total=total,
+                    confidence=round(pr.confidence, 2),
+                    handwriting=pr.has_handwriting,
+                )
+                return pr
 
         return await asyncio.gather(*(_guarded(i) for i in page_indices))

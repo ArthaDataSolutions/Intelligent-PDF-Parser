@@ -103,6 +103,20 @@ uvicorn app.main:app --reload # http://localhost:8000/docs
 | `POST` | `/parse` | PDF → structured Markdown (no LLM Q&A) |
 | `POST` | `/process` | PDF → parse **+** analyst Q&A (JSON) |
 | `POST` | `/process/markdown` | PDF → parse + Q&A, returns the Q&A as a Markdown file |
+| `POST` | `/runs` | Start a **background** run; returns `{run_id}` (the UI's primary path) |
+| `GET`  | `/runs` | List past runs (paginated) |
+| `GET`  | `/runs/{id}` | Full run detail: parse, Q&A, timings, status, error |
+| `GET`  | `/runs/{id}/logs` | Per-run structured logs (incremental via `?after=`) |
+| `DELETE` | `/runs/{id}` | Delete a run and its logs/chat |
+| `GET`  | `/runs/{id}/chat` | Interactive Q&A history for a run |
+| `POST` | `/runs/{id}/ask` | Ask a **grounded** question about the parsed document |
+| `GET` / `PUT` | `/settings` | Read / persist operational settings (no secrets) |
+
+Every call to the legacy `/parse` and `/process` endpoints is also recorded in
+run history, so nothing is lost. The single-page console at `/` covers all of
+this: **New Run**, **Run History**, a per-run detail view (parsed output,
+analyst Q&A, an interactive *Ask the document* chat with page citations, and a
+live **Logs** console), and a **Settings** editor.
 
 ```bash
 # Parse + generate 10 analyst Q&A pairs, get a Markdown brief back
@@ -131,9 +145,20 @@ Everything is env-driven (see `.env.example`). The most important knobs:
 | `OPENAI_MODEL` / `OPENAI_VISION_MODEL` | `gpt-5.5` | OpenAI model for Q&A / vision |
 | `PARSER_BACKEND` | `auto` | `auto` router, or force `docling`/`llamaparse`/`vision_llm` |
 | `PARSER_CONFIDENCE_THRESHOLD` | `0.62` | Cheap-backend pages below this are re-read by the vision LLM |
+| `HANDWRITING_SCAN_CHAR_THRESHOLD` | `20` | Pages with fewer extractable text chars are treated as scan/handwriting candidates |
+| `HANDWRITING_IMAGE_AREA_THRESHOLD` | `0.15` | Image coverage needed to route sparse-text pages to vision in `auto` |
+| `HANDWRITING_TEXT_AREA_THRESHOLD` | `0.35` | Text coverage below this can route image-heavy pages to vision in `auto` |
 | `FORCE_VISION_LLM` | `false` | Send every page through the vision LLM (max accuracy/cost) |
 | `VISION_IMAGE_DETAIL` | `original` | `original` recommended for handwriting/low-quality scans |
 | `VISION_RENDER_DPI` | `200` | Page render resolution for the vision backend |
+| `VISION_MAX_CONCURRENCY` | `4` | Maximum simultaneous vision page requests per run |
+| `DB_PATH` | `./data/app.db` | SQLite file for run history, logs, and Q&A chat |
+| `DEFAULT_NUM_QUESTIONS` | `12` | Analyst-question count when a run omits it |
+
+Operational knobs (everything except secrets) are also editable at runtime from
+the **Settings** page and persisted to the DB — changes apply immediately with
+no restart. API keys and endpoints stay env-only and are never written to or
+returned from the store.
 
 The service **degrades gracefully**: with no keys and no Docling installed, `/parse`
 still returns native-extracted text and a warning. `GET /config` tells you exactly
