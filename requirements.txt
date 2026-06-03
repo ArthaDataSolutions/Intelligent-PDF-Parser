@@ -1,0 +1,29 @@
+# --- Core service ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+pydantic==2.10.4
+pydantic-settings==2.7.1
+httpx==0.28.1
+tenacity==9.0.0
+structlog==24.4.0
+
+# --- PDF handling / rendering ---
+pymupdf==1.25.1          # fast PDF -> image rendering, native text extraction
+pillow==11.1.0
+
+# --- Parser backends (optional at runtime; router degrades gracefully) ---
+docling==2.15.1          # IBM open-source layout-aware parser (self-hosted)
+llama-cloud-services==0.6.0   # LlamaParse client (API)
+
+# --- LLM provider SDKs (optional; loaded lazily by provider) ---
+openai==1.59.6           # OpenAI + Azure OpenAI
+anthropic==0.42.0        # Claude
+
+# --- Q&A document output ---
+markdown-it-py==3.0.0
+
+# --- Dev / test ---
+pytest==8.3.4
+pytest-asyncio==0.25.2
+respx==0.22.0

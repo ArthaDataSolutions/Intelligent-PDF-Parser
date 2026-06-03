@@ -1,0 +1,33 @@
+# Intelligent PDF Parser — production compose.
+# Default profile runs just the API (uses cloud LLM providers via .env).
+# `--profile local-llm` additionally starts Ollama for fully self-hosted runs.
+
+services:
+  api:
+    build: .
+    image: intelligent-pdf-parser:latest
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist HF/docling model cache so cold starts are fast after the first run.
+      - model-cache:/home/appuser/.cache/huggingface
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_started
+        required: false
+
+  # Optional self-hosted LLM. Enable with: docker compose --profile local-llm up
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["local-llm"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  model-cache:
+  ollama-data:
