@@ -10,3 +10,4 @@ venv/
 /outputs/
 samples/*.pdf
 !samples/.gitkeep
+samples/

@@ -28,15 +28,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    HF_HOME=/home/appuser/.cache/huggingface
+    HF_HOME=/home/appuser/.cache/huggingface \
+    DB_PATH=/data/app.db
 
 COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
 COPY app ./app
 COPY scripts ./scripts
+# Bundle the small sample PDFs so the "Sample" source works out of the box.
+# The large fixture zip + agentic dataset are excluded via .dockerignore.
+COPY samples ./samples
+
+# Writable, persistable location for the SQLite run store. Owning it as appuser
+# means a fresh named volume mounted here inherits that ownership.
+RUN mkdir -p /data /home/appuser/.cache/huggingface \
+    && chown -R appuser:appuser /data /home/appuser/.cache
 
 USER appuser
+VOLUME ["/data"]
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

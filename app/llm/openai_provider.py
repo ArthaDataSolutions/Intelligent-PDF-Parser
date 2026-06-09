@@ -53,11 +53,14 @@ class OpenAIProvider(LLMProvider):
         max_tokens: int = 4096,
         json_mode: bool = False,
     ) -> str:
+        # NOTE: current GPT-5.x reasoning models reject `temperature`/`top_p` and
+        # require `max_completion_tokens` instead of `max_tokens`. We target those
+        # models, so we omit `temperature` and use `max_completion_tokens`.
+        # `temperature` stays in the signature only for cross-provider parity.
         kwargs: dict = {
             "model": self.text_model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
+            "max_completion_tokens": max_tokens,
         }
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
@@ -87,11 +90,11 @@ class OpenAIProvider(LLMProvider):
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": content})
+        # See chat(): omit `temperature`, use `max_completion_tokens` for GPT-5.x.
         resp = await self._client.chat.completions.create(
             model=self.vision_model,
             messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_tokens,
         )
         return resp.choices[0].message.content or ""
 

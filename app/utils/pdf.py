@@ -41,7 +41,13 @@ def extract_native_text(doc_bytes: bytes, page_index: int) -> str:
         return doc[page_index].get_text("text")
 
 
-def analyze_pages(doc_bytes: bytes) -> list[PageSignal]:
+def analyze_pages(
+    doc_bytes: bytes,
+    *,
+    scan_char_threshold: int = 20,
+    image_area_threshold: float = 0.15,
+    text_area_threshold: float = 0.35,
+) -> list[PageSignal]:
     """Produce routing signals for every page."""
     signals: list[PageSignal] = []
     with fitz.open(stream=doc_bytes, filetype="pdf") as doc:
@@ -72,9 +78,9 @@ def analyze_pages(doc_bytes: bytes) -> list[PageSignal]:
             # see. A meaningful embedded raster alongside sparse text is the
             # classic "printed report + handwritten annotation" case. Both should
             # be read by the vision-LLM backend.
-            likely_scanned = char_count < 20
+            likely_scanned = char_count < scan_char_threshold
             likely_handwritten = likely_scanned or (
-                img_ratio > 0.15 and text_ratio < 0.35
+                img_ratio > image_area_threshold and text_ratio < text_area_threshold
             )
 
             signals.append(

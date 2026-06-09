@@ -38,6 +38,10 @@ class AnthropicProvider(LLMProvider):
         max_tokens: int = 4096,
         json_mode: bool = False,
     ) -> str:
+        # NOTE: current Claude models (opus 4.7+/sonnet 4.6+) reject `temperature`
+        # and `top_p` ("`temperature` is deprecated for this model"). We rely on
+        # the model's default sampling and never forward those knobs. `temperature`
+        # is kept in the signature only for cross-provider parity (Ollama uses it).
         system, convo = self._split_system(messages)
         if json_mode:
             system = (system or "") + "\n\nRespond with a single valid JSON object only."
@@ -45,7 +49,6 @@ class AnthropicProvider(LLMProvider):
             model=self.text_model,
             system=system or "",
             messages=convo,
-            temperature=temperature,
             max_tokens=max_tokens,
         )
         return "".join(b.text for b in resp.content if b.type == "text")
@@ -74,11 +77,11 @@ class AnthropicProvider(LLMProvider):
                 }
             )
         blocks.append({"type": "text", "text": prompt})
+        # See chat(): `temperature` is not forwarded — current Claude models reject it.
         resp = await self._client.messages.create(
             model=self.vision_model,
             system=system or "",
             messages=[{"role": "user", "content": blocks}],
-            temperature=temperature,
             max_tokens=max_tokens,
         )
         return "".join(b.text for b in resp.content if b.type == "text")

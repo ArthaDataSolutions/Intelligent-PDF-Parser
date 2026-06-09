@@ -31,6 +31,7 @@ class Pipeline:
         filename: str,
         *,
         num_questions: int = 12,
+        peers: list[str] | None = None,
     ) -> ProcessResponse:
         timings: dict[str, float] = {}
         t0 = time.perf_counter()
@@ -42,19 +43,17 @@ class Pipeline:
         qa: QADocument | None
         try:
             qa = await QAGenerator(provider).generate(
-                parse, num_questions=num_questions
+                parse, num_questions=num_questions, peers=peers
             )
         finally:
             await provider.aclose()
         timings["qa"] = round((time.perf_counter() - t1) * 1000, 1)
 
-        return ProcessResponse(
-            parse=parse,
-            qa=qa,
-            timings_ms=timings,
-            meta={
-                "parser_backend": self.s.parser_backend,
-                "llm_provider": self.s.llm_provider,
-                "vision_provider": self.s.effective_vision_provider,
-            },
-        )
+        meta = {
+            "parser_backend": self.s.parser_backend,
+            "llm_provider": self.s.llm_provider,
+            "vision_provider": self.s.effective_vision_provider,
+        }
+        if peers:
+            meta["peers"] = peers
+        return ProcessResponse(parse=parse, qa=qa, timings_ms=timings, meta=meta)
