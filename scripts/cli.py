@@ -27,7 +27,10 @@ async def _run(args: argparse.Namespace) -> None:
         for w in resp.parse.warnings:
             print("warning:", w, file=sys.stderr)
     else:
-        resp = await pipe.process(raw, Path(args.pdf).name, num_questions=args.num)
+        peers = [p.strip() for p in (args.peers or "").split(",") if p.strip()]
+        resp = await pipe.process(
+            raw, Path(args.pdf).name, num_questions=args.num, peers=peers or None
+        )
         md = QAGenerator.to_markdown(resp.qa) if resp.qa else "(no Q&A)"
         if args.out:
             Path(args.out).write_text(md, encoding="utf-8")
@@ -46,6 +49,11 @@ def main() -> None:
     pq.add_argument("pdf")
     pq.add_argument("-n", "--num", type=int, default=12, help="number of Q&A pairs")
     pq.add_argument("-o", "--out", help="write Q&A markdown to this file")
+    pq.add_argument(
+        "-p", "--peers",
+        help="comma-separated comparable pharma companies for analyst "
+        "peer-comparison questions (e.g. 'Pfizer,Merck,Novartis')",
+    )
     asyncio.run(_run(p.parse_args()))
 
 

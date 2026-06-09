@@ -31,6 +31,7 @@ class Pipeline:
         filename: str,
         *,
         num_questions: int = 12,
+        peers: list[str] | None = None,
     ) -> ProcessResponse:
         timings: dict[str, float] = {}
         t0 = time.perf_counter()
@@ -42,7 +43,7 @@ class Pipeline:
         qa: QADocument | None
         try:
             qa = await QAGenerator(provider).generate(
-                parse, num_questions=num_questions
+                parse, num_questions=num_questions, peers=peers
             )
         finally:
             await provider.aclose()

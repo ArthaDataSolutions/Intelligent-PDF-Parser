@@ -2,8 +2,19 @@
 
 A production-grade service that turns financial-report PDFs — including ones with
 **handwritten notes and annotations** — into clean structured Markdown, then uses
-an LLM to generate an **analyst-style Q&A document** a CFO can use to prepare for
-tough questions from journalists and sell-side analysts (WSJ, NYT, etc.).
+an LLM to generate an **analyst- and journalist-style Q&A document** a CFO can use
+to prepare for tough questions after results.
+
+The Q&A generator is **specialised for pharmaceutical companies' financial
+reports**. It models the two audiences that actually ask the questions —
+**journalists** (WSJ/NYT/FT/Reuters/STAT/Endpoints; pricing & access, litigation,
+safety, exec pay) and **sell-/buy-side analysts** (guidance, margins, pipeline,
+and **peer comparisons** against similar pharma names) — and for every question it
+records *who* would ask it, *why* it is being asked (with citations back to the
+source page), and, for benchmarking questions, how comparable companies frame the
+same issue. There is no stored question bank: every brief is generated fresh from
+the latest filing you upload, so the questions always reflect the most recent
+period.
 
 It is built around two ideas that reflect the state of document AI as of mid-2026:
 
@@ -66,7 +77,7 @@ Key modules:
 | `app/parsers/vision_llm_parser.py` | Renders pages to images; reads handwriting |
 | `app/parsers/docling_parser.py`, `llamaparse_parser.py` | Cheap printed-text backends |
 | `app/llm/` | Provider abstraction + OpenAI/Anthropic/Azure/Ollama adapters |
-| `app/qa/generator.py` | Analyst Q&A generation (anti-hallucination prompt + schema) |
+| `app/qa/generator.py` | Pharma analyst & journalist Q&A (asker + reasoning + peer-comparison, anti-hallucination prompt + schema) |
 | `app/utils/pdf.py` | PyMuPDF rendering + handwriting/scan heuristic |
 | `app/main.py` | FastAPI service |
 
@@ -130,6 +141,10 @@ CLI equivalent:
 ```bash
 python scripts/cli.py parse samples/sample_handwritten_board_notes.pdf
 python scripts/cli.py qa    samples/sample_q3_report_with_handwriting.pdf -n 10 -o qa.md
+
+# Bias the analyst peer-comparison questions toward named comparable companies:
+python scripts/cli.py qa    samples/sample_q3_report_with_handwriting.pdf \
+        -n 12 --peers "Pfizer,Merck,Novartis"
 ```
 
 ## Configuration
