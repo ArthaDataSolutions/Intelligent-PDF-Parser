@@ -148,10 +148,64 @@ def test_settings_get_and_update(client):
 
 
 def test_settings_rejects_non_whitelisted_key(client):
-    r = client.put("/settings", json={"values": {"openai_api_key": "sk-leak"}})
+    # db_path is deliberately not editable from the UI.
+    r = client.put("/settings", json={"values": {"db_path": "/etc/passwd"}})
     assert r.status_code == 400
 
 
 def test_settings_rejects_invalid_value(client):
     r = client.put("/settings", json={"values": {"parser_backend": "bogus"}})
     assert r.status_code == 422
+
+
+def test_settings_accepts_secret_key_write_only(client):
+    view = client.get("/settings").json()
+    assert "openai_api_key" in view["secret_keys"]
+    # Secret values must never appear in the returned values map.
+    assert "openai_api_key" not in view["values"]
+
+    try:
+        r = client.put("/settings", json={"values": {"openai_api_key": "sk-test-123"}})
+        assert r.status_code == 200
+        body = r.json()
+        assert "openai_api_key" not in body["values"]      # never echoed
+        assert body["keys_present"]["openai"] is True       # but recorded as present
+        assert "openai_api_key" in body["overridden"]
+
+        # And it is not leaked by /config either.
+        assert client.get("/config").json()["keys_present"]["openai"] is True
+    finally:
+        # Clear it so it can't affect other tests sharing the override store.
+        client.put("/settings", json={"values": {"openai_api_key": " "}})
+
+
+def test_default_peers_setting_roundtrip(client):
+    try:
+        r = client.put("/settings", json={"values": {"default_peers": "Pfizer, Merck"}})
+        assert r.status_code == 200
+        assert r.json()["values"]["default_peers"] == "Pfizer, Merck"
+    finally:
+        client.put("/settings", json={"values": {"default_peers": ""}})
+
+
+def test_agent_test_ok(client, monkeypatch):
+    monkeypatch.setattr("app.main.build_llm_provider",
+                        lambda s: FakeLLM(chat_reply="OK"))
+    r = client.post("/agent/test")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["reply"] == "OK"
+    assert "latency_ms" in body and body["provider"]
+
+
+def test_agent_test_reports_provider_failure(client, monkeypatch):
+    def _boom(_s):
+        raise RuntimeError("missing api key")
+    monkeypatch.setattr("app.main.build_llm_provider", _boom)
+    r = client.post("/agent/test")
+    assert r.status_code == 200          # diagnostic payload, not an HTTP error
+    body = r.json()
+    assert body["ok"] is False
+    assert body["stage"] == "config"
+    assert "missing api key" in body["error"]

@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     db_path: str = "./data/app.db"
     # Default analyst-question count used by the run API when not specified.
     default_num_questions: int = 12
+    # Default comma-separated comparable pharma companies used to seed analyst
+    # peer-comparison questions when a run doesn't specify its own list.
+    default_peers: str = ""
 
     # Provider selection
     llm_provider: ProviderName = "anthropic"
@@ -77,7 +80,7 @@ def get_settings() -> Settings:
 # the DB. Secrets (API keys, endpoints) are deliberately excluded — they stay
 # env-only and are never written to or returned from SQLite.
 OVERRIDE_WHITELIST: frozenset[str] = frozenset({
-    "log_level", "max_upload_mb", "default_num_questions",
+    "log_level", "max_upload_mb", "default_num_questions", "default_peers",
     "llm_provider", "vision_provider",
     "parser_backend", "force_vision_llm", "parser_confidence_threshold",
     "handwriting_scan_char_threshold", "handwriting_image_area_threshold",
@@ -87,7 +90,15 @@ OVERRIDE_WHITELIST: frozenset[str] = frozenset({
     "anthropic_model", "anthropic_vision_model",
     "ollama_base_url", "ollama_model", "ollama_vision_model",
     "azure_openai_deployment", "azure_openai_vision_deployment",
-    "azure_openai_api_version",
+    "azure_openai_endpoint", "azure_openai_api_version",
+})
+
+# Secret credentials that may be set from the UI. They are handled separately
+# from OVERRIDE_WHITELIST: they are write-only (never returned to the client —
+# only a "present" boolean is exposed) and stored in the same override table.
+SECRET_OVERRIDE_KEYS: frozenset[str] = frozenset({
+    "openai_api_key", "anthropic_api_key", "azure_openai_api_key",
+    "llama_cloud_api_key",
 })
 
 
@@ -105,9 +116,10 @@ def get_active_settings() -> Settings:
         overrides = get_repository(base.db_path).get_overrides()
     except Exception:  # pragma: no cover - never let the store break a request
         return base
+    allowed = OVERRIDE_WHITELIST | SECRET_OVERRIDE_KEYS
     filtered = {
         k: v for k, v in overrides.items()
-        if k in OVERRIDE_WHITELIST and v is not None
+        if k in allowed and v is not None
     }
     if not filtered:
         return base

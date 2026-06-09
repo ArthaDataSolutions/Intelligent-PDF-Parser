@@ -25,6 +25,7 @@ Run history / logs / interactive Q&A (the production surface the UI uses):
 """
 from __future__ import annotations
 
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ from pydantic import BaseModel, ValidationError
 
 from .config import (
     OVERRIDE_WHITELIST,
+    SECRET_OVERRIDE_KEYS,
     Settings,
     get_active_settings,
     get_settings,
@@ -105,6 +107,12 @@ async def _read_pdf(file: UploadFile) -> bytes:
     if not raw.startswith(b"%PDF"):
         raise HTTPException(400, "File does not look like a valid PDF")
     return raw
+
+
+def _resolve_peers(raw: str | None) -> list[str]:
+    """Comma-separated peers from the request, falling back to the saved default."""
+    text = raw if raw is not None else get_active_settings().default_peers
+    return [p.strip() for p in (text or "").split(",") if p.strip()]
 
 
 def _load_sample(name: str) -> bytes:
@@ -236,6 +244,44 @@ async def samples() -> dict:
     return {"samples": list_samples()}
 
 
+@app.post("/agent/test")
+async def agent_test() -> dict:
+    """Live connectivity check for the configured Q&A agent (LLM provider).
+
+    Builds the active LLM provider and issues a minimal chat completion so the
+    user can confirm — from the UI — that their provider selection, model, and
+    API key actually work, with a round-trip latency. No secrets are returned.
+    """
+    s = get_active_settings()
+    model = _provider_models(s)[s.llm_provider]["text"]
+    base = {"provider": s.llm_provider, "model": model}
+    try:
+        provider = build_llm_provider(s)
+    except Exception as exc:
+        return {**base, "ok": False, "stage": "config", "error": str(exc)}
+
+    t0 = time.perf_counter()
+    try:
+        reply = await provider.chat(
+            [LLMMessage(role="user", content="Reply with the single word: OK")],
+            temperature=0.0,
+            max_tokens=16,
+        )
+        latency = round((time.perf_counter() - t0) * 1000, 1)
+        log.info("agent_test_ok", provider=s.llm_provider, latency_ms=latency)
+        return {
+            **base,
+            "ok": True,
+            "latency_ms": latency,
+            "reply": (reply or "").strip()[:200],
+        }
+    except Exception as exc:
+        log.error("agent_test_failed", provider=s.llm_provider, error=str(exc))
+        return {**base, "ok": False, "stage": "call", "error": str(exc)}
+    finally:
+        await provider.aclose()
+
+
 # --------------------------------------------------------------------------- #
 # Legacy synchronous endpoints (record history via run_inline)
 # --------------------------------------------------------------------------- #
@@ -262,12 +308,14 @@ async def parse_sample(name: str = Form(...)) -> ProcessResponse:
 async def process(
     file: UploadFile = File(...),
     num_questions: int = Form(12),
+    peers: str | None = Form(None),
 ) -> ProcessResponse:
     raw = await _read_pdf(file)
     try:
         _, resp = await _service().run_inline(
             raw, file.filename or "upload.pdf",
             mode=MODE_PROCESS, source="upload", num_questions=num_questions,
+            peers=_resolve_peers(peers),
         )
         return resp
     except Exception as exc:
@@ -279,12 +327,13 @@ async def process(
 async def process_sample(
     name: str = Form(...),
     num_questions: int = Form(12),
+    peers: str | None = Form(None),
 ) -> ProcessResponse:
     raw = _load_sample(name)
     try:
         _, resp = await _service().run_inline(
             raw, name, mode=MODE_PROCESS, source="sample",
-            num_questions=num_questions,
+            num_questions=num_questions, peers=_resolve_peers(peers),
         )
         return resp
     except Exception as exc:
@@ -296,11 +345,13 @@ async def process_sample(
 async def process_markdown(
     file: UploadFile = File(...),
     num_questions: int = Form(12),
+    peers: str | None = Form(None),
 ) -> str:
     raw = await _read_pdf(file)
     _, resp = await _service().run_inline(
         raw, file.filename or "upload.pdf",
         mode=MODE_PROCESS, source="upload", num_questions=num_questions,
+        peers=_resolve_peers(peers),
     )
     if resp.qa is None:
         raise HTTPException(502, "Q&A generation produced no output")
@@ -317,11 +368,13 @@ async def start_run(
     file: UploadFile | None = File(None),
     mode: str = Form(MODE_PROCESS),
     num_questions: int | None = Form(None),
+    peers: str | None = Form(None),
 ) -> dict:
     if mode not in (MODE_PARSE, MODE_PROCESS):
         raise HTTPException(400, "mode must be 'parse' or 'process'")
     s = get_active_settings()
     nq = num_questions or s.default_num_questions
+    peer_list = _resolve_peers(peers)
 
     if source == "sample":
         if not name:
@@ -338,6 +391,7 @@ async def start_run(
 
     run_id = _service().start_background(
         raw, filename, mode=mode, source=source, num_questions=nq,
+        peers=peer_list,
     )
     return {"run_id": run_id, "status": "queued"}
 
@@ -435,6 +489,7 @@ _SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "log_level": {"type": "enum", "options": ["DEBUG", "INFO", "WARNING", "ERROR"]},
     "max_upload_mb": {"type": "int", "min": 1, "max": 500},
     "default_num_questions": {"type": "int", "min": 1, "max": 40},
+    "default_peers": {"type": "str"},
     "llm_provider": {"type": "enum", "options": _PROVIDER_OPTIONS},
     "vision_provider": {"type": "enum", "options": _PROVIDER_OPTIONS, "nullable": True},
     "parser_backend": {
@@ -458,7 +513,13 @@ _SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "ollama_vision_model": {"type": "str"},
     "azure_openai_deployment": {"type": "str", "nullable": True},
     "azure_openai_vision_deployment": {"type": "str", "nullable": True},
+    "azure_openai_endpoint": {"type": "str", "nullable": True},
     "azure_openai_api_version": {"type": "str"},
+    # Write-only credentials (rendered as password inputs; never returned).
+    "openai_api_key": {"type": "secret"},
+    "anthropic_api_key": {"type": "secret"},
+    "azure_openai_api_key": {"type": "secret"},
+    "llama_cloud_api_key": {"type": "secret"},
 }
 
 
@@ -468,8 +529,13 @@ def _settings_view() -> dict:
     values = {k: getattr(s, k) for k in OVERRIDE_WHITELIST}
     return {
         "values": values,
-        "overridden": sorted(k for k in overrides if k in OVERRIDE_WHITELIST),
+        "overridden": sorted(
+            k for k in overrides if k in OVERRIDE_WHITELIST | SECRET_OVERRIDE_KEYS
+        ),
         "schema": _SETTINGS_SCHEMA,
+        # Secret credentials are write-only: never echo their values, only the
+        # field names (so the UI can render inputs) and the present/absent flags.
+        "secret_keys": sorted(SECRET_OVERRIDE_KEYS),
         "keys_present": _key_status(s),
         "backends_available": _backends_available(s),
     }
@@ -486,20 +552,29 @@ class SettingsUpdate(BaseModel):
 
 @app.put("/settings")
 async def update_settings(body: SettingsUpdate) -> dict:
-    invalid = [k for k in body.values if k not in OVERRIDE_WHITELIST]
+    editable = OVERRIDE_WHITELIST | SECRET_OVERRIDE_KEYS
+    invalid = [k for k in body.values if k not in editable]
     if invalid:
         raise HTTPException(400, f"Not editable: {', '.join(sorted(invalid))}")
 
+    # Blank secret values mean "clear this override" (fall back to env), not
+    # "store an empty key" — coerce them to None before validating/persisting.
+    values = dict(body.values)
+    for key in SECRET_OVERRIDE_KEYS:
+        if key in values and not (values[key] or "").strip():
+            values[key] = None
+
     # Validate the merged result before persisting anything.
     candidate = get_active_settings().model_dump()
-    candidate.update(body.values)
+    candidate.update(values)
     try:
         Settings(**candidate)
     except ValidationError as exc:
         raise HTTPException(422, f"Invalid settings: {exc}") from exc
 
-    _repo().set_overrides(body.values)
-    if "log_level" in body.values and body.values["log_level"]:
-        configure_logging(str(body.values["log_level"]))
-    log.info("settings_updated", keys=sorted(body.values.keys()))
+    _repo().set_overrides(values)
+    if "log_level" in values and values["log_level"]:
+        configure_logging(str(values["log_level"]))
+    # Never log secret values — only which keys changed.
+    log.info("settings_updated", keys=sorted(values.keys()))
     return _settings_view()

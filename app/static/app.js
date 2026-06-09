@@ -87,6 +87,9 @@ async function viewNew() {
           <label class="field" id="f-nq"><span>Analyst questions</span>
             <input type="number" id="num-questions" value="12" min="1" max="40" />
           </label>
+          <label class="field" id="f-peers"><span>Peer companies <span class="faint">(optional, comma-separated)</span></span>
+            <input type="text" id="peers-input" placeholder="e.g. Pfizer, Merck, Novartis" />
+          </label>
           <button class="btn block" id="start-btn">Start run</button>
         </div>
       </div>
@@ -116,6 +119,7 @@ async function viewNew() {
     state.mode = b.dataset.mode;
     $$("#mode-seg button").forEach((x) => x.setAttribute("aria-pressed", x === b));
     $("#f-nq").classList.toggle("hidden", state.mode !== "process");
+    $("#f-peers").classList.toggle("hidden", state.mode !== "process");
   });
 
   $("#start-btn").addEventListener("click", async () => {
@@ -128,7 +132,10 @@ async function viewNew() {
       payload.file = $("#file-input").files[0];
       if (!payload.file) return toast("Choose a PDF file first", "bad");
     }
-    if (state.mode === "process") payload.numQuestions = Number($("#num-questions").value) || 12;
+    if (state.mode === "process") {
+      payload.numQuestions = Number($("#num-questions").value) || 12;
+      payload.peers = $("#peers-input").value.trim();
+    }
     btn.disabled = true;
     btn.innerHTML = `<span class="spin">↻</span> starting…`;
     try {
@@ -430,6 +437,9 @@ function settingField(key, value, schema, overridden) {
   } else if (s.type === "int" || s.type === "float") {
     const step = s.type === "float" ? "0.01" : "1";
     control = `<input type="number" id="set-${key}" value="${esc(value ?? "")}" step="${step}" ${s.min != null ? `min="${s.min}"` : ""} ${s.max != null ? `max="${s.max}"` : ""} />`;
+  } else if (s.type === "secret") {
+    // Write-only: value is never sent from the server. Empty input = no change.
+    control = `<input type="password" id="set-${key}" value="" autocomplete="new-password" placeholder="${s.present ? "•••••• set — type to replace" : "not set"}" />`;
   } else {
     control = `<input type="text" id="set-${key}" value="${esc(value ?? "")}" />`;
   }
@@ -437,16 +447,25 @@ function settingField(key, value, schema, overridden) {
 }
 
 const SETTING_GROUPS = [
-  { title: "Application", keys: ["log_level", "max_upload_mb", "default_num_questions"] },
+  { title: "Application", keys: ["log_level", "max_upload_mb", "default_num_questions", "default_peers"] },
   { title: "Providers", keys: ["llm_provider", "vision_provider"] },
   { title: "Parsing", keys: ["parser_backend", "force_vision_llm", "parser_confidence_threshold", "handwriting_scan_char_threshold", "handwriting_image_area_threshold", "handwriting_text_area_threshold", "vision_image_detail", "vision_render_dpi", "vision_max_concurrency"] },
   { title: "Models", keys: ["openai_model", "openai_vision_model", "anthropic_model", "anthropic_vision_model", "ollama_base_url", "ollama_model", "ollama_vision_model", "azure_openai_deployment", "azure_openai_vision_deployment", "azure_openai_api_version"] },
 ];
 
+// Maps each secret setting key to the provider name used in `keys_present`.
+const SECRET_PRESENT_MAP = {
+  openai_api_key: "openai",
+  anthropic_api_key: "anthropic",
+  azure_openai_api_key: "azure",
+  llama_cloud_api_key: "llama_cloud",
+};
+
 async function viewSettings() {
   setActiveNav("settings");
-  setHeader("Settings", "Operational knobs (secrets stay in the environment)",
-    `<button class="btn" id="save-settings">Save changes</button>`);
+  setHeader("Settings", "Operational knobs — provider API keys can be set here",
+    `<button class="btn ghost" id="test-agent">Test agent</button>
+     <button class="btn" id="save-settings">Save changes</button>`);
   view.innerHTML = `<div class="placeholder">loading settings…</div>`;
 
   let data;
@@ -454,6 +473,7 @@ async function viewSettings() {
   catch (e) { view.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
 
   const { values, schema, overridden, keys_present, backends_available } = data;
+  const secretKeys = data.secret_keys || [];
 
   const keyChips = Object.entries(keys_present).map(([k, v]) =>
     `<span class="chip ${v ? "on" : "off"}"><span class="dot ${v ? "ok" : "bad"}"></span>${esc(k)}</span>`).join("");
@@ -466,6 +486,23 @@ async function viewSettings() {
         ${g.keys.filter((k) => k in values).map((k) => settingField(k, values[k], schema, overridden)).join("")}
       </div></div>`).join("");
 
+  // Secret credentials: write-only password inputs, with a present/absent hint.
+  const secretFields = secretKeys.map((k) => {
+    const present = !!keys_present[SECRET_PRESENT_MAP[k] || k];
+    const merged = { ...schema, [k]: { ...(schema[k] || { type: "secret" }), present } };
+    return settingField(k, null, merged, overridden);
+  }).join("");
+  const secretGroup = secretKeys.length ? `
+    <div class="card"><div class="card-head"><h3>Agent credentials (API keys)</h3></div>
+      <div class="card-body">
+        <p class="faint" style="font-size:0.8rem;line-height:1.6;margin:0 0 0.8rem">
+          Keys are write-only: stored server-side and never sent back to the browser.
+          Leave a field blank to keep the current value; clear a saved key by
+          submitting a single space. After saving, use <strong>Test agent</strong> to verify.
+        </p>
+        <div class="grid-2">${secretFields}</div>
+      </div></div>` : "";
+
   view.innerHTML = `
     <div class="card"><div class="card-head"><h3>Credentials &amp; backends</h3></div>
       <div class="card-body">
@@ -473,13 +510,39 @@ async function viewSettings() {
         <div style="display:flex;flex-wrap:wrap;gap:0.45rem;margin-bottom:1rem">${keyChips}</div>
         <p class="faint" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.1em;margin:0 0 0.5rem">Parser backends available</p>
         <div style="display:flex;flex-wrap:wrap;gap:0.45rem">${backendChips}</div>
+        <div id="agent-test-result" class="agent-test hidden"></div>
       </div></div>
+    ${secretGroup}
     ${groups}`;
 
-  $("#save-settings").addEventListener("click", () => saveSettings(values, schema));
+  $("#save-settings").addEventListener("click", () => saveSettings(values, schema, secretKeys));
+  $("#test-agent").addEventListener("click", testAgent);
 }
 
-async function saveSettings(current, schema) {
+async function testAgent() {
+  const btn = $("#test-agent");
+  const panel = $("#agent-test-result");
+  btn.disabled = true; btn.innerHTML = `<span class="spin">↻</span> testing…`;
+  panel.classList.remove("hidden", "ok", "bad");
+  panel.innerHTML = `Pinging the configured agent…`;
+  try {
+    const r = await api.testAgent();
+    if (r.ok) {
+      panel.classList.add("ok");
+      panel.innerHTML = `✓ <strong>${esc(r.provider)}</strong> (${esc(r.model)}) responded in ${esc(r.latency_ms)} ms · reply: <span class="mono">${esc(r.reply || "")}</span>`;
+    } else {
+      panel.classList.add("bad");
+      panel.innerHTML = `✗ <strong>${esc(r.provider || "agent")}</strong> (${esc(r.model || "—")}) failed at <em>${esc(r.stage || "call")}</em>: ${esc(r.error || "unknown error")}`;
+    }
+  } catch (e) {
+    panel.classList.add("bad");
+    panel.innerHTML = `✗ ${esc(e.message)}`;
+  } finally {
+    btn.disabled = false; btn.textContent = "Test agent";
+  }
+}
+
+async function saveSettings(current, schema, secretKeys = []) {
   const changed = {};
   for (const key of Object.keys(current)) {
     const el = $(`#set-${key}`);
@@ -493,6 +556,12 @@ async function saveSettings(current, schema) {
     // Normalize for comparison; only send genuine changes.
     const cur = current[key] ?? null;
     if (JSON.stringify(val) !== JSON.stringify(cur)) changed[key] = val;
+  }
+  // Secret credentials are write-only: only send a field if the user typed
+  // something. A single space clears the stored key (handled server-side).
+  for (const key of secretKeys) {
+    const el = $(`#set-${key}`);
+    if (el && el.value !== "") changed[key] = el.value;
   }
   if (!Object.keys(changed).length) return toast("No changes to save");
   const btn = $("#save-settings");

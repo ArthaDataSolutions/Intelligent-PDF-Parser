@@ -53,6 +53,7 @@ class RunService:
     async def _execute(
         self, run_id: str, settings: Settings, doc_bytes: bytes,
         filename: str, mode: str, num_questions: int,
+        peers: list[str] | None = None,
     ) -> ProcessResponse:
         """Run the pipeline, persisting status/logs/results. Re-raises on error."""
         with run_context(run_id):
@@ -63,9 +64,11 @@ class RunService:
             try:
                 pipeline = Pipeline(settings)
                 if mode == MODE_PROCESS:
-                    log.info("parsing_and_qa", num_questions=num_questions)
+                    log.info("parsing_and_qa", num_questions=num_questions,
+                             peers=peers or [])
                     resp = await pipeline.process(
-                        doc_bytes, filename, num_questions=num_questions
+                        doc_bytes, filename, num_questions=num_questions,
+                        peers=peers,
                     )
                 else:
                     log.info("parsing")
@@ -103,6 +106,7 @@ class RunService:
     def start_background(
         self, doc_bytes: bytes, filename: str, *,
         mode: str, source: str, num_questions: int,
+        peers: list[str] | None = None,
     ) -> str:
         settings = get_active_settings()
         run_id = self._create(
@@ -113,7 +117,8 @@ class RunService:
         async def _runner() -> None:
             try:
                 await self._execute(
-                    run_id, settings, doc_bytes, filename, mode, num_questions
+                    run_id, settings, doc_bytes, filename, mode, num_questions,
+                    peers,
                 )
             except Exception:  # already recorded on the run; don't crash the loop
                 pass
@@ -124,6 +129,7 @@ class RunService:
     async def run_inline(
         self, doc_bytes: bytes, filename: str, *,
         mode: str, source: str, num_questions: int,
+        peers: list[str] | None = None,
     ) -> tuple[str, ProcessResponse]:
         settings = get_active_settings()
         run_id = self._create(
@@ -131,7 +137,7 @@ class RunService:
             num_questions=num_questions, settings=settings,
         )
         resp = await self._execute(
-            run_id, settings, doc_bytes, filename, mode, num_questions
+            run_id, settings, doc_bytes, filename, mode, num_questions, peers
         )
         return run_id, resp
 

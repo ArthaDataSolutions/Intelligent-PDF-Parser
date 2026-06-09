@@ -121,18 +121,27 @@ uvicorn app.main:app --reload # http://localhost:8000/docs
 | `DELETE` | `/runs/{id}` | Delete a run and its logs/chat |
 | `GET`  | `/runs/{id}/chat` | Interactive Q&A history for a run |
 | `POST` | `/runs/{id}/ask` | Ask a **grounded** question about the parsed document |
-| `GET` / `PUT` | `/settings` | Read / persist operational settings (no secrets) |
+| `POST` | `/agent/test` | Live connectivity check for the configured Q&A agent (returns ok/latency, no secrets) |
+| `GET` / `PUT` | `/settings` | Read / persist operational settings **and provider API keys** (keys are write-only) |
 
 Every call to the legacy `/parse` and `/process` endpoints is also recorded in
 run history, so nothing is lost. The single-page console at `/` covers all of
-this: **New Run**, **Run History**, a per-run detail view (parsed output,
-analyst Q&A, an interactive *Ask the document* chat with page citations, and a
-live **Logs** console), and a **Settings** editor.
+this: **New Run** (mode, question count, and optional **peer companies**),
+**Run History**, a per-run detail view (parsed output, analyst Q&A, an
+interactive *Ask the document* chat with page citations, and a live **Logs**
+console), and a **Settings** editor.
+
+**Everything an operator needs is configurable from the UI Settings page** — log
+level, default question count, default peer companies, provider/parser selection,
+models, and the **provider API keys** themselves. Keys are write-only (stored
+server-side, never sent back to the browser), and a **Test agent** button issues
+a minimal live completion so you can confirm the agent works before running a job.
 
 ```bash
 # Parse + generate 10 analyst Q&A pairs, get a Markdown brief back
 curl -s -F "file=@samples/sample_q3_report_with_handwriting.pdf" \
         -F "num_questions=10" \
+        -F "peers=Pfizer,Merck,Novartis" \
         http://localhost:8000/process/markdown
 ```
 
@@ -213,7 +222,11 @@ provider factory's config validation, and Q&A generation/Markdown rendering.
 - Q&A answers are grounded: the model is instructed to answer only from the
   document, cite source pages, and caveat figures lifted from handwriting. Output
   is validated against a Pydantic schema; malformed items are dropped, not trusted.
-- Secrets live only in `.env` (git-ignored). `.env.example` documents every key.
+- Secrets can be supplied via `.env` (git-ignored; `.env.example` documents every
+  key) **or** set from the UI Settings page. UI-set keys are stored as write-only
+  overrides in the SQLite store (`DB_PATH`) and are never returned to the client —
+  secure that file and its host like any other credential store, or keep keys in
+  `.env`/your secret manager if you prefer they never touch disk via the app.
 
 ## Sources
 

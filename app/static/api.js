@@ -25,15 +25,18 @@ export const api = {
   runLogs: (id, after = 0) => req(`/runs/${id}/logs?after=${after}`),
   deleteRun: (id) => req(`/runs/${id}`, { method: "DELETE" }),
 
-  startRun({ source, name, file, mode, numQuestions }) {
+  startRun({ source, name, file, mode, numQuestions, peers }) {
     const fd = new FormData();
     fd.append("source", source);
     fd.append("mode", mode);
     if (source === "sample") fd.append("name", name);
     else fd.append("file", file);
     if (numQuestions != null) fd.append("num_questions", String(numQuestions));
+    if (peers != null) fd.append("peers", String(peers));
     return req("/runs", { method: "POST", body: fd });
   },
+
+  testAgent: () => req("/agent/test", { method: "POST" }),
 
   chat: (id) => req(`/runs/${id}/chat`),
   ask: (id, question) =>
