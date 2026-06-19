@@ -96,6 +96,22 @@ export function renderPages(parse) {
   }).join("");
 }
 
+// Web-sourced peer citations. Only http(s) links are rendered (defensive
+// against javascript:/data: schemes), each opened in a new tab with noopener.
+function renderCitations(citations) {
+  if (!citations || !citations.length) return "";
+  const links = citations
+    .filter((c) => c && /^https?:\/\//i.test(c.url || ""))
+    .map((c) => {
+      const label = esc(c.title || c.url);
+      const who = c.peer ? `${esc(c.peer)} — ` : "";
+      const quote = c.quote ? `<span class="cite-quote">“${esc(c.quote.trim())}”</span>` : "";
+      return `<li>📎 <a href="${esc(c.url)}" target="_blank" rel="noopener noreferrer">${who}${label}</a>${quote}</li>`;
+    })
+    .join("");
+  return links ? `<ul class="qa-citations">${links}</ul>` : "";
+}
+
 export function renderQA(qa) {
   if (!qa || !qa.items || !qa.items.length)
     return `<div class="placeholder">No analyst Q&A for this run.<br>Run in <strong>Parse + Q&A</strong> mode to generate it.</div>`;
@@ -106,6 +122,8 @@ export function renderQA(qa) {
       <p class="qa-a">${esc(it.answer)}</p>
       ${it.reasoning ? `<div class="qa-reason">💡 <em>Why it's asked:</em> ${esc(it.reasoning)}</div>` : ""}
       ${it.peer_context ? `<div class="qa-peer">🔍 <em>Peer context:</em> ${esc(it.peer_context)}</div>` : ""}
+      ${it.peer_answer ? `<div class="qa-peer-answer">🌐 <em>How peers answered it:</em> ${esc(it.peer_answer)}</div>` : ""}
+      ${renderCitations(it.peer_citations)}
       <div class="qa-meta">
         ${it.asker ? `<span class="badge">${esc(it.asker)}</span>` : ""}
         <span class="badge dim">${esc(it.category)}</span>

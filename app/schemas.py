@@ -47,6 +47,26 @@ class ParseResult(BaseModel):
         return "".join(parts).strip()
 
 
+class PeerCitation(BaseModel):
+    """A real, web-sourced reference showing where a comparable pharma company
+    faced a similar question (and, when the source says so, how they answered).
+
+    Populated by :class:`app.qa.peer_retrieval.PeerCitationEnricher` from
+    Anthropic's web-search tool — every field is grounded in a live search
+    result, never invented. ``url``/``title``/``quote`` come straight from the
+    web-search citation; ``peer``/``venue`` are best-effort attribution.
+    """
+    url: str
+    title: str = ""
+    # The comparable company the source is about (e.g. "Pfizer"), when identifiable.
+    peer: str | None = None
+    # Where the question surfaced for the peer — "earnings call", "investor day",
+    # "10-K", "press", etc. — when identifiable from the source.
+    venue: str | None = None
+    # The cited snippet from the source that backs the reference.
+    quote: str = ""
+
+
 class QAItem(BaseModel):
     question: str
     answer: str
@@ -61,6 +81,14 @@ class QAItem(BaseModel):
     # (e.g. an analyst benchmarking pipeline or margins against larger peers).
     # Null when the question is not a peer comparison.
     peer_context: str | None = None
+    # Web-grounded enrichment for peer-comparison questions (filled in a second
+    # pass, only when web search is enabled and the question has peer_context):
+    #   * peer_answer — a citation-backed summary of where/whether a comparable
+    #     company faced this question and how they answered it; None when the
+    #     search found nothing usable ("else no problem").
+    #   * peer_citations — the real sources behind peer_answer.
+    peer_answer: str | None = None
+    peer_citations: list[PeerCitation] = Field(default_factory=list)
     category: str = "general"
     confidence: Confidence = "medium"
     source_pages: list[int] = Field(default_factory=list)

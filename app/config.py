@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     # Default comma-separated comparable pharma companies used to seed analyst
     # peer-comparison questions when a run doesn't specify its own list.
     default_peers: str = ""
+    # Ground peer-comparison questions with live web search (Anthropic web-search
+    # tool) so they carry real citations + how a comparable company answered.
+    # Requires an Anthropic text provider; silently skipped for other providers.
+    # NOTE: each searched question incurs Anthropic web-search billing.
+    peer_web_search: bool = True
+    # Max web searches Claude may run per peer question.
+    peer_web_search_max_uses: int = Field(5, ge=1, le=20)
 
     # Provider selection
     llm_provider: ProviderName = "anthropic"
@@ -81,6 +88,7 @@ def get_settings() -> Settings:
 # env-only and are never written to or returned from SQLite.
 OVERRIDE_WHITELIST: frozenset[str] = frozenset({
     "log_level", "max_upload_mb", "default_num_questions", "default_peers",
+    "peer_web_search", "peer_web_search_max_uses",
     "llm_provider", "vision_provider",
     "parser_backend", "force_vision_llm", "parser_confidence_threshold",
     "handwriting_scan_char_threshold", "handwriting_image_area_threshold",
