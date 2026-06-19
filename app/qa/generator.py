@@ -303,6 +303,16 @@ class QAGenerator:
                     lines.append(f"> 💡 *Why it's asked:* {it.reasoning}")
                 if it.peer_context:
                     lines.append(f"> 🔍 *Peer context:* {it.peer_context}")
+                if it.peer_answer:
+                    lines.append(f"> 🌐 *How peers answered it:* {it.peer_answer}")
+                for c in it.peer_citations:
+                    label = c.title or c.url
+                    attrib = ", ".join(x for x in (c.peer, c.venue) if x)
+                    who = f"{attrib} — " if attrib else ""
+                    cite = f"> 📎 [{who}{label}]({c.url})"
+                    if c.quote:
+                        cite += f" — “{c.quote.strip()}”"
+                    lines.append(cite)
                 meta = (
                     f"<sub>asked by: {it.asker} · confidence: {it.confidence} · "
                     f"source page(s): {pages}</sub>"

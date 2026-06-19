@@ -16,6 +16,15 @@ same issue. There is no stored question bank: every brief is generated fresh fro
 the latest filing you upload, so the questions always reflect the most recent
 period.
 
+For peer-comparison questions it goes one step further: an optional **web-grounded
+citation pass** (Anthropic's server-side web-search tool) looks up whether a
+comparable pharma company actually faced a similar question — at an earnings call,
+investor day, or in a filing — and **how they answered it**, attaching the *real*
+source links. It is best-effort and grounded-or-nothing: if no real source is
+found, the question simply carries no peer citation rather than an invented one.
+Enabled by `PEER_WEB_SEARCH` (default on; requires an Anthropic text provider and
+incurs web-search billing per searched question).
+
 It is built around two ideas that reflect the state of document AI as of mid-2026:
 
 1. **No single parser wins on every page.** LLM/vision parsers read messy layouts
@@ -78,6 +87,7 @@ Key modules:
 | `app/parsers/docling_parser.py`, `llamaparse_parser.py` | Cheap printed-text backends |
 | `app/llm/` | Provider abstraction + OpenAI/Anthropic/Azure/Ollama adapters |
 | `app/qa/generator.py` | Pharma analyst & journalist Q&A (asker + reasoning + peer-comparison, anti-hallucination prompt + schema) |
+| `app/qa/peer_retrieval.py` | Web-grounded peer citations via Anthropic web search (real sources + how peers answered) |
 | `app/utils/pdf.py` | PyMuPDF rendering + handwriting/scan heuristic |
 | `app/main.py` | FastAPI service |
 

@@ -247,8 +247,14 @@ input[type="checkbox"] { width: auto; accent-color: var(--accent-dim); }
 .qa-q { font-weight: 600; margin: 0 0 0.45rem; }
 .qa-a { color: var(--muted); font-size: 0.92rem; margin: 0 0 0.6rem; }
 .qa-meta { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
-.qa-reason, .qa-peer { font-size: 0.82rem; color: var(--muted); margin: 0 0 0.5rem; padding-left: 0.6rem; border-left: 2px solid var(--line); }
-.qa-reason em, .qa-peer em { color: var(--text); font-style: normal; font-weight: 600; }
+.qa-reason, .qa-peer, .qa-peer-answer { font-size: 0.82rem; color: var(--muted); margin: 0 0 0.5rem; padding-left: 0.6rem; border-left: 2px solid var(--line); }
+.qa-reason em, .qa-peer em, .qa-peer-answer em { color: var(--text); font-style: normal; font-weight: 600; }
+.qa-peer-answer { border-left-color: oklch(55% 0.12 240); }
+.qa-citations { list-style: none; margin: 0 0 0.6rem; padding-left: 0.6rem; border-left: 2px solid oklch(55% 0.12 240); display: flex; flex-direction: column; gap: 0.3rem; }
+.qa-citations li { font-size: 0.8rem; color: var(--muted); }
+.qa-citations a { color: var(--info); text-decoration: none; }
+.qa-citations a:hover { text-decoration: underline; }
+.cite-quote { display: block; color: var(--faint); font-style: italic; margin-top: 0.15rem; }
 .qa-caveat { margin-top: 0.6rem; font-size: 0.8rem; color: var(--warn); border-left: 2px solid oklch(45% 0.1 78); padding-left: 0.6rem; }
 
 /* ---- Agent test result ---- */

@@ -58,6 +58,32 @@ class FakeLLM(LLMProvider):
         return self._vision_reply
 
 
+class FakeSearchLLM(FakeLLM):
+    """FakeLLM that also exposes the web-search capability (Anthropic-like).
+
+    ``grounded`` is the canned :class:`GroundedAnswer` returned for every
+    search; set ``raises=True`` to simulate a transient web-search failure.
+    """
+
+    def __init__(self, *, grounded=None, raises: bool = False,
+                 chat_reply: str = "{}", vision_reply: str = "") -> None:
+        super().__init__(chat_reply=chat_reply, vision_reply=vision_reply)
+        from app.llm.anthropic_provider import GroundedAnswer
+
+        self._grounded = grounded if grounded is not None else GroundedAnswer(
+            text="", citations=[]
+        )
+        self._raises = raises
+        self.search_calls: list[str] = []
+
+    async def search_with_citations(self, prompt, *, system=None, max_uses=5,
+                                    max_tokens=1024):
+        self.search_calls.append(prompt)
+        if self._raises:
+            raise RuntimeError("web search transient failure")
+        return self._grounded
+
+
 class FakeAdapter(ParserAdapter):
     def __init__(self, name, *, available=True, confidence=0.9,
                  handwriting_capable=False):

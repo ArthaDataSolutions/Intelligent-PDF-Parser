@@ -2,10 +2,35 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import dataclass
 
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .base import LLMMessage, LLMProvider
+
+# Anthropic's GA server-side web-search tool. The API runs the search loop
+# itself and returns the final message with text + auto-generated citations
+# (no manual tool round-trips needed). Pin the latest tool version we ship with.
+WEB_SEARCH_TOOL_TYPE = "web_search_20260209"
+# Web search + tool turns can be slow; give them headroom over the default,
+# but keep it bounded — with one retry this caps a stalled call at ~2x, and a
+# timeout just drops that question's citations (enrichment is best-effort).
+_WEB_SEARCH_TIMEOUT_S = 60.0
+
+
+@dataclass(frozen=True)
+class WebCitation:
+    """One web-search citation lifted verbatim from a Claude response."""
+    url: str
+    title: str
+    cited_text: str
+
+
+@dataclass(frozen=True)
+class GroundedAnswer:
+    """A web-grounded answer: the model's text plus the citations backing it."""
+    text: str
+    citations: list[WebCitation]
 
 
 class AnthropicProvider(LLMProvider):
@@ -85,6 +110,65 @@ class AnthropicProvider(LLMProvider):
             max_tokens=max_tokens,
         )
         return "".join(b.text for b in resp.content if b.type == "text")
+
+    @retry(stop=stop_after_attempt(2), wait=wait_exponential(min=1, max=10))
+    async def search_with_citations(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        max_uses: int = 5,
+        max_tokens: int = 1024,
+    ) -> GroundedAnswer:
+        """Answer `prompt` using Claude's server-side web search and return the
+        text together with the real citations Claude attached to it.
+
+        The presence of this method is how the pipeline detects that a provider
+        can ground peer-comparison questions; non-Anthropic providers don't have
+        it and are skipped. Returns an empty :class:`GroundedAnswer` if the model
+        produced no citations (caller treats that as "nothing found").
+        """
+        resp = await self._client.messages.create(
+            model=self.text_model,
+            system=system or "",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+            tools=[{
+                "type": WEB_SEARCH_TOOL_TYPE,
+                "name": "web_search",
+                "max_uses": max_uses,
+            }],
+            timeout=_WEB_SEARCH_TIMEOUT_S,
+        )
+        return self._collect_grounding(resp)
+
+    @staticmethod
+    def _collect_grounding(resp) -> GroundedAnswer:
+        """Pull text + web-search citations out of a tool-enabled response."""
+        text_parts: list[str] = []
+        citations: list[WebCitation] = []
+        seen: set[str] = set()
+        for block in resp.content:
+            if getattr(block, "type", None) != "text":
+                continue
+            text_parts.append(getattr(block, "text", None) or "")
+            for c in (getattr(block, "citations", None) or []):
+                if getattr(c, "type", None) != "web_search_result_location":
+                    continue
+                url = getattr(c, "url", "") or ""
+                cited = getattr(c, "cited_text", "") or ""
+                # Dedup per (url, full snippet): same page can yield several
+                # distinct cited spans — keep each, drop only exact repeats.
+                key = f"{url}|{cited}"
+                if not url or key in seen:
+                    continue
+                seen.add(key)
+                citations.append(WebCitation(
+                    url=url,
+                    title=getattr(c, "title", None) or "",
+                    cited_text=cited,
+                ))
+        return GroundedAnswer(text="".join(text_parts).strip(), citations=citations)
 
     async def aclose(self) -> None:
         await self._client.close()

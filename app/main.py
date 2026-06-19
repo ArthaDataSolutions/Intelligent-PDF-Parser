@@ -490,6 +490,8 @@ _SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "max_upload_mb": {"type": "int", "min": 1, "max": 500},
     "default_num_questions": {"type": "int", "min": 1, "max": 40},
     "default_peers": {"type": "str"},
+    "peer_web_search": {"type": "bool"},
+    "peer_web_search_max_uses": {"type": "int", "min": 1, "max": 20},
     "llm_provider": {"type": "enum", "options": _PROVIDER_OPTIONS},
     "vision_provider": {"type": "enum", "options": _PROVIDER_OPTIONS, "nullable": True},
     "parser_backend": {
