@@ -81,6 +81,27 @@ def _attribute_peer(title: str, url: str, peers: list[str]) -> str | None:
     return None
 
 
+# Ordered most- to least-specific so e.g. "annual report" wins over a bare
+# "report". Each entry maps signal substrings -> the venue label we surface.
+_VENUE_SIGNALS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("earnings call", "earnings-call", "q1 ", "q2 ", "q3 ", "q4 ", "quarterly call"), "earnings call"),
+    (("investor day", "investor-day", "capital markets day", "analyst day"), "investor day"),
+    (("10-k", "10k", "annual report", "20-f", "form 20-f"), "annual report"),
+    (("10-q", "10q", "quarterly report"), "quarterly report"),
+    (("8-k", "press release", "press-release", "newsroom"), "press release"),
+    (("transcript", "conference", "webcast"), "investor call"),
+)
+
+
+def _attribute_venue(title: str, url: str) -> str | None:
+    """Best-effort: where the peer question surfaced, from the citation title/url."""
+    haystack = f"{title} {url}".lower()
+    for signals, label in _VENUE_SIGNALS:
+        if any(s in haystack for s in signals):
+            return label
+    return None
+
+
 class PeerCitationEnricher:
     """Adds web-grounded ``peer_answer`` + ``peer_citations`` to peer questions."""
 
@@ -151,6 +172,7 @@ class PeerCitationEnricher:
                 title=c.title,
                 quote=c.cited_text,
                 peer=_attribute_peer(c.title, c.url, roster),
+                venue=_attribute_venue(c.title, c.url),
             )
             for c in grounded.citations
         ]

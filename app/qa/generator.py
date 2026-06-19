@@ -307,7 +307,8 @@ class QAGenerator:
                     lines.append(f"> 🌐 *How peers answered it:* {it.peer_answer}")
                 for c in it.peer_citations:
                     label = c.title or c.url
-                    who = f"{c.peer} — " if c.peer else ""
+                    attrib = ", ".join(x for x in (c.peer, c.venue) if x)
+                    who = f"{attrib} — " if attrib else ""
                     cite = f"> 📎 [{who}{label}]({c.url})"
                     if c.quote:
                         cite += f" — “{c.quote.strip()}”"

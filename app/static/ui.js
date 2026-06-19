@@ -104,7 +104,8 @@ function renderCitations(citations) {
     .filter((c) => c && /^https?:\/\//i.test(c.url || ""))
     .map((c) => {
       const label = esc(c.title || c.url);
-      const who = c.peer ? `${esc(c.peer)} — ` : "";
+      const attrib = [c.peer, c.venue].filter(Boolean).map(esc).join(", ");
+      const who = attrib ? `${attrib} — ` : "";
       const quote = c.quote ? `<span class="cite-quote">“${esc(c.quote.trim())}”</span>` : "";
       return `<li>📎 <a href="${esc(c.url)}" target="_blank" rel="noopener noreferrer">${who}${label}</a>${quote}</li>`;
     })

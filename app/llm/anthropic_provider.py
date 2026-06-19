@@ -12,8 +12,10 @@ from .base import LLMMessage, LLMProvider
 # itself and returns the final message with text + auto-generated citations
 # (no manual tool round-trips needed). Pin the latest tool version we ship with.
 WEB_SEARCH_TOOL_TYPE = "web_search_20260209"
-# Web search + tool turns can be slow; give them headroom over the default.
-_WEB_SEARCH_TIMEOUT_S = 120.0
+# Web search + tool turns can be slow; give them headroom over the default,
+# but keep it bounded — with one retry this caps a stalled call at ~2x, and a
+# timeout just drops that question's citations (enrichment is best-effort).
+_WEB_SEARCH_TIMEOUT_S = 60.0
 
 
 @dataclass(frozen=True)
@@ -149,19 +151,22 @@ class AnthropicProvider(LLMProvider):
         for block in resp.content:
             if getattr(block, "type", None) != "text":
                 continue
-            text_parts.append(block.text)
+            text_parts.append(getattr(block, "text", None) or "")
             for c in (getattr(block, "citations", None) or []):
                 if getattr(c, "type", None) != "web_search_result_location":
                     continue
                 url = getattr(c, "url", "") or ""
-                key = f"{url}|{getattr(c, 'cited_text', '')[:80]}"
+                cited = getattr(c, "cited_text", "") or ""
+                # Dedup per (url, full snippet): same page can yield several
+                # distinct cited spans — keep each, drop only exact repeats.
+                key = f"{url}|{cited}"
                 if not url or key in seen:
                     continue
                 seen.add(key)
                 citations.append(WebCitation(
                     url=url,
                     title=getattr(c, "title", None) or "",
-                    cited_text=getattr(c, "cited_text", "") or "",
+                    cited_text=cited,
                 ))
         return GroundedAnswer(text="".join(text_parts).strip(), citations=citations)
 

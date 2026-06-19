@@ -62,6 +62,7 @@ async def test_enrich_grounds_only_peer_items():
     cite = peer_item.peer_citations[0]
     assert cite.url == "https://example.com/pfizer-q3-2025-call"
     assert cite.peer == "Pfizer"  # attributed from the title
+    assert cite.venue == "earnings call"  # "Earnings Call" in the title
     assert cite.quote
     # Non-peer item is untouched, and only the one peer question was searched.
     assert plain_item.peer_answer is None
@@ -101,6 +102,16 @@ async def test_enrich_does_not_mutate_input_document():
     # Original document's peer item must remain ungrounded (immutability).
     assert doc.items[0].peer_answer is None
     assert doc.items[0].peer_citations == []
+
+
+def test_attribute_venue_from_title_or_url():
+    from app.qa.peer_retrieval import _attribute_venue
+
+    assert _attribute_venue("Pfizer Q3 2025 Earnings Call", "") == "earnings call"
+    assert _attribute_venue("Merck Investor Day 2025", "") == "investor day"
+    assert _attribute_venue("Form 10-K", "https://sec.gov/...10-k.htm") == "annual report"
+    assert _attribute_venue("Novartis Press Release", "") == "press release"
+    assert _attribute_venue("Some Random Blog Post", "https://blog.example.com") is None
 
 
 def test_collect_grounding_extracts_dedups_and_filters():
