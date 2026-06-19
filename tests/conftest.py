@@ -44,10 +44,12 @@ class FakeLLM(LLMProvider):
         self._chat_reply = chat_reply
         self._vision_reply = vision_reply
         self.chat_calls: list[list[LLMMessage]] = []
+        self.last_max_tokens: int | None = None
         self.vision_calls = 0
 
     async def chat(self, messages, *, temperature=0.2, max_tokens=4096, json_mode=False):
         self.chat_calls.append(messages)
+        self.last_max_tokens = max_tokens
         return self._chat_reply
 
     async def vision(self, prompt, images_png, *, system=None, detail="auto",

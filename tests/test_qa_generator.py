@@ -69,6 +69,38 @@ async def test_generate_passes_peer_hint_to_provider():
     assert "Pfizer" in user_msg and "Merck" in user_msg
 
 
+async def test_generate_salvages_truncated_json():
+    """A response cut off by the token limit keeps its complete items."""
+    good = {
+        "question": "What drove the revenue beat?",
+        "answer": "Revenue was $1,284.6M.",
+        "asker": "analyst",
+        "reasoning": "Top-line beat on p.1.",
+        "peer_context": None,
+        "category": "segments",
+        "confidence": "high",
+        "source_pages": [1],
+        "caveat": None,
+    }
+    # Two complete items, then a third object truncated mid-string (no closing
+    # brace / bracket) — exactly what an output-token cutoff produces.
+    head = '{"company": "Northwind Pharma", "period": "Q3 FY2026", "items": ['
+    truncated = head + json.dumps(good) + ", " + json.dumps(good) + ', {"question": "What about gui'
+    gen = QAGenerator(FakeLLM(chat_reply=truncated))
+    doc = await gen.generate(_parse_result(), num_questions=20)
+    assert doc.company == "Northwind Pharma"
+    assert doc.period == "Q3 FY2026"
+    assert len(doc.items) == 2  # the two whole items survive; the partial is dropped
+
+
+async def test_generate_scales_token_budget_with_question_count():
+    fake = FakeLLM(chat_reply=json.dumps({"company": None, "period": None, "items": []}))
+    gen = QAGenerator(fake)
+    await gen.generate(_parse_result(), num_questions=20)
+    # Budget must scale past the old hardcoded 4096 so 20 items don't truncate.
+    assert fake.last_max_tokens >= 20 * 600
+
+
 async def test_generate_handles_fenced_json():
     payload = {"company": None, "period": None, "items": []}
     fenced = "```json\n" + json.dumps(payload) + "\n```"

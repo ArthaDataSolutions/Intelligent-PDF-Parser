@@ -125,7 +125,94 @@ class QAGenerator:
             raw = raw.split("```", 2)[1]
             raw = raw[4:] if raw.lower().startswith("json") else raw
         start, end = raw.find("{"), raw.rfind("}") + 1
-        return json.loads(raw[start:end])
+        snippet = raw[start:end]
+        try:
+            return json.loads(snippet)
+        except json.JSONDecodeError:
+            # The model most likely hit its output-token limit and the JSON was
+            # cut off mid-object. Rather than failing the whole run, salvage the
+            # complete items that did make it through.
+            log.warning("qa_json_truncated", chars=len(raw))
+            return QAGenerator._salvage_truncated(raw[start:])
+
+    @staticmethod
+    def _scan_string_field(text: str, key: str) -> str | None:
+        """Pull a top-level "key": "value"|null pair out of (possibly broken) JSON."""
+        marker = f'"{key}"'
+        i = text.find(marker)
+        if i == -1:
+            return None
+        i = text.find(":", i + len(marker))
+        if i == -1:
+            return None
+        rest = text[i + 1:].lstrip()
+        if rest.startswith("null"):
+            return None
+        if not rest.startswith('"'):
+            return None
+        # Read the string body, honouring escaped quotes.
+        out, esc = [], False
+        for ch in rest[1:]:
+            if esc:
+                out.append(ch)
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                break
+            else:
+                out.append(ch)
+        return "".join(out)
+
+    @staticmethod
+    def _iter_json_objects(text: str):
+        """Yield each complete top-level {...} object in `text`, string-aware.
+
+        Stops at the first incomplete object (an unbalanced trailing brace from a
+        truncated response), so callers get every whole item and nothing partial.
+        """
+        depth, in_str, esc, start = 0, False, False, -1
+        for idx, ch in enumerate(text):
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                if depth == 0:
+                    start = idx
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0 and start != -1:
+                    yield text[start: idx + 1]
+                    start = -1
+            elif ch == "]" and depth == 0:
+                break  # end of the items array
+
+    @staticmethod
+    def _salvage_truncated(text: str) -> dict:
+        """Recover company/period and any complete item objects from cut-off JSON."""
+        items: list[dict] = []
+        marker = text.find('"items"')
+        if marker != -1:
+            arr = text.find("[", marker)
+            if arr != -1:
+                for obj in QAGenerator._iter_json_objects(text[arr + 1:]):
+                    try:
+                        items.append(json.loads(obj))
+                    except json.JSONDecodeError:
+                        break
+        return {
+            "company": QAGenerator._scan_string_field(text, "company"),
+            "period": QAGenerator._scan_string_field(text, "period"),
+            "items": items,
+        }
 
     async def generate(
         self,
@@ -136,6 +223,12 @@ class QAGenerator:
         peers: list[str] | None = None,
     ) -> QADocument:
         doc_md = parse.markdown[:max_chars]
+        # Each rich Q&A item (question + grounded answer + reasoning + peer
+        # context + metadata) runs ~450 output tokens. Size the budget to the
+        # requested count so large batches aren't truncated mid-JSON — the bug
+        # that previously failed whole runs. No upper clamp: let the provider's
+        # own model limit be the ceiling.
+        out_tokens = max(4096, num_questions * 600)
         peer_hint = ""
         if peers:
             named = ", ".join(p.strip() for p in peers if p.strip())
@@ -156,6 +249,7 @@ class QAGenerator:
             model=getattr(self._provider, "text_model", ""),
             requested_questions=num_questions,
             max_chars=max_chars,
+            max_tokens=out_tokens,
             truncated=len(parse.markdown) > max_chars,
         )
         messages = [
@@ -168,7 +262,7 @@ class QAGenerator:
             ),
         ]
         raw = await self._provider.chat(
-            messages, temperature=0.2, max_tokens=4096, json_mode=True
+            messages, temperature=0.2, max_tokens=out_tokens, json_mode=True
         )
         log.debug("qa_response_received", chars=len(raw))
         data = self._extract_json(raw)
