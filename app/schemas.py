@@ -4,7 +4,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 Confidence = Literal["low", "medium", "high"]
 
@@ -93,6 +93,21 @@ class QAItem(BaseModel):
     confidence: Confidence = "medium"
     source_pages: list[int] = Field(default_factory=list)
     caveat: str | None = None
+
+    @model_validator(mode="after")
+    def _grounded_or_nothing(self) -> "QAItem":
+        """Enforce the grounded-or-nothing contract for peer enrichment.
+
+        A web-grounded ``peer_answer`` may exist ONLY when backed by at least one
+        real ``peer_citation``. If an answer arrives without citations (a buggy
+        enrichment path, a hand-built item, or malformed deserialized data), drop
+        it rather than surface an unsourced peer claim as if it were sourced.
+        This makes "we either have citations or we don't" a structural invariant
+        of the model itself, not just a convention in one code path.
+        """
+        if self.peer_answer and not self.peer_citations:
+            self.peer_answer = None
+        return self
 
 
 class QADocument(BaseModel):

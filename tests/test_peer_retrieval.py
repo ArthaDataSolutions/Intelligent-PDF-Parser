@@ -104,6 +104,28 @@ async def test_enrich_does_not_mutate_input_document():
     assert doc.items[0].peer_citations == []
 
 
+def test_qaitem_enforces_grounded_or_nothing_invariant():
+    from app.schemas import PeerCitation
+
+    # peer_answer without any citation is dropped (structural invariant).
+    bare = QAItem(question="q", answer="a", peer_answer="unsourced peer claim")
+    assert bare.peer_answer is None
+    assert bare.peer_citations == []
+
+    # peer_answer backed by a real citation is kept.
+    grounded = QAItem(
+        question="q", answer="a", peer_answer="grounded claim",
+        peer_citations=[PeerCitation(url="https://x", title="X")],
+    )
+    assert grounded.peer_answer == "grounded claim"
+
+    # The invariant also holds on deserialization (e.g. reading qa_json from DB).
+    revived = QAItem.model_validate_json(
+        '{"question":"q","answer":"a","peer_answer":"unsourced","peer_citations":[]}'
+    )
+    assert revived.peer_answer is None
+
+
 def test_attribute_venue_from_title_or_url():
     from app.qa.peer_retrieval import _attribute_venue
 
@@ -114,23 +136,26 @@ def test_attribute_venue_from_title_or_url():
     assert _attribute_venue("Some Random Blog Post", "https://blog.example.com") is None
 
 
-def test_collect_grounding_extracts_dedups_and_filters():
+def test_collect_grounding_drops_preamble_dedups_and_filters():
     from types import SimpleNamespace as NS
 
     from app.llm.anthropic_provider import AnthropicProvider
 
     resp = NS(content=[
-        NS(type="text", text="Pfizer said X. ", citations=[
+        # Pre-search planning narration — must NOT leak into the answer.
+        NS(type="text", text="I'll search for Pfizer's revenue.", citations=None),
+        NS(type="server_tool_use"),
+        NS(type="web_search_tool_result"),
+        # The real answer comes after the final search, carrying the citations.
+        NS(type="text", text="Pfizer reported $58.5B.", citations=[
             NS(type="web_search_result_location", url="https://a", title="A", cited_text="x"),
             NS(type="web_search_result_location", url="https://a", title="A", cited_text="x"),
             NS(type="char_location", url="", title="", cited_text="ignored"),
             NS(type="web_search_result_location", url="", title="no-url", cited_text="z"),
         ]),
-        NS(type="server_tool_use"),  # no .text / .citations — must be skipped
-        NS(type="text", text="More.", citations=None),
     ])
     ga = AnthropicProvider._collect_grounding(resp)
-    assert ga.text == "Pfizer said X. More."
+    assert ga.text == "Pfizer reported $58.5B."  # planning preamble dropped
     assert len(ga.citations) == 1  # duped, non-web-search, and url-less dropped
     assert ga.citations[0].url == "https://a"
 

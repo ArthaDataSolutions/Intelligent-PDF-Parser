@@ -40,7 +40,12 @@ _SYSTEM = (
     "results you retrieve. Never fabricate sources, companies, quotes, dates, or "
     "numbers. If the search returns nothing relevant, say so plainly and stop. "
     "Prefer primary sources (earnings-call transcripts, investor-day decks, "
-    "10-K/10-Q/20-F filings) and reputable financial press."
+    "10-K/10-Q/20-F filings) and reputable financial press.\n\n"
+    "OUTPUT RULES: Reply with ONLY the final answer prose — the 2-4 sentence "
+    "grounded summary itself. Do NOT narrate your process or include meta- "
+    "commentary such as \"I'll search...\", \"I have enough to answer\", "
+    "\"Let me...\", or statements about your confidence. Start directly with the "
+    "substantive finding (the company and what it said)."
 )
 
 _NOTHING_FOUND = "No comparable peer disclosure found."
@@ -65,10 +70,11 @@ def _build_prompt(question: str, peer_hint: str) -> str:
         "has faced a similar question recently (an earnings call, investor day, "
         "analyst Q&A, regulatory filing, or reputable news report), and, if so, "
         "how that company answered it.\n\n"
-        "Write 2-4 sentences grounded in real sources. Name the company and the "
-        'venue (e.g. "Pfizer, Q3 2025 earnings call") when the source shows it. '
-        f'If you find no relevant real source, reply exactly "{_NOTHING_FOUND}" '
-        "and nothing else — do not speculate or invent."
+        "Write 2-4 sentences grounded in real sources, starting directly with the "
+        "company and what it said — no preamble or narration about searching. "
+        'Name the company and the venue (e.g. "Pfizer, Q3 2025 earnings call") '
+        f'when the source shows it. If you find no relevant real source, reply '
+        f'exactly "{_NOTHING_FOUND}" and nothing else — do not speculate or invent.'
     )
 
 

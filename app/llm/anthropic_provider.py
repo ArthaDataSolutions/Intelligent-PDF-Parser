@@ -137,6 +137,12 @@ class AnthropicProvider(LLMProvider):
                 "type": WEB_SEARCH_TOOL_TYPE,
                 "name": "web_search",
                 "max_uses": max_uses,
+                # Force DIRECT search calls. If the model is allowed to call
+                # web_search from inside code_execution it gets raw results but
+                # the API attaches NO citation blocks — text comes back with
+                # "Source: ..." prose and citations=0. Direct calls are what
+                # carry the web_search_result_location citations we rely on.
+                "allowed_callers": ["direct"],
             }],
             timeout=_WEB_SEARCH_TIMEOUT_S,
         )
@@ -148,8 +154,21 @@ class AnthropicProvider(LLMProvider):
         text_parts: list[str] = []
         citations: list[WebCitation] = []
         seen: set[str] = set()
+        # Tool blocks that mean "a search just ran". The model narrates its plan
+        # ("I'll search for...") in text blocks BEFORE each search; only the text
+        # after the final search is the actual answer. Reset the answer buffer on
+        # each tool block so interim narration is dropped. Citations are collected
+        # from every text block regardless (they only ever ride the answer).
+        tool_types = {
+            "server_tool_use", "web_search_tool_result",
+            "code_execution_tool_result",
+        }
         for block in resp.content:
-            if getattr(block, "type", None) != "text":
+            btype = getattr(block, "type", None)
+            if btype in tool_types:
+                text_parts = []
+                continue
+            if btype != "text":
                 continue
             text_parts.append(getattr(block, "text", None) or "")
             for c in (getattr(block, "citations", None) or []):
