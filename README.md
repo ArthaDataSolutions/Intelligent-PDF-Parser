@@ -2,8 +2,19 @@
 
 A production-grade service that turns financial-report PDFs — including ones with
 **handwritten notes and annotations** — into clean structured Markdown, then uses
-an LLM to generate an **analyst-style Q&A document** a CFO can use to prepare for
-tough questions from journalists and sell-side analysts (WSJ, NYT, etc.).
+an LLM to generate an **analyst- and journalist-style Q&A document** a CFO can use
+to prepare for tough questions after results.
+
+The Q&A generator is **specialised for pharmaceutical companies' financial
+reports**. It models the two audiences that actually ask the questions —
+**journalists** (WSJ/NYT/FT/Reuters/STAT/Endpoints; pricing & access, litigation,
+safety, exec pay) and **sell-/buy-side analysts** (guidance, margins, pipeline,
+and **peer comparisons** against similar pharma names) — and for every question it
+records *who* would ask it, *why* it is being asked (with citations back to the
+source page), and, for benchmarking questions, how comparable companies frame the
+same issue. There is no stored question bank: every brief is generated fresh from
+the latest filing you upload, so the questions always reflect the most recent
+period.
 
 It is built around two ideas that reflect the state of document AI as of mid-2026:
 
@@ -66,7 +77,7 @@ Key modules:
 | `app/parsers/vision_llm_parser.py` | Renders pages to images; reads handwriting |
 | `app/parsers/docling_parser.py`, `llamaparse_parser.py` | Cheap printed-text backends |
 | `app/llm/` | Provider abstraction + OpenAI/Anthropic/Azure/Ollama adapters |
-| `app/qa/generator.py` | Analyst Q&A generation (anti-hallucination prompt + schema) |
+| `app/qa/generator.py` | Pharma analyst & journalist Q&A (asker + reasoning + peer-comparison, anti-hallucination prompt + schema) |
 | `app/utils/pdf.py` | PyMuPDF rendering + handwriting/scan heuristic |
 | `app/main.py` | FastAPI service |
 
@@ -110,18 +121,27 @@ uvicorn app.main:app --reload # http://localhost:8000/docs
 | `DELETE` | `/runs/{id}` | Delete a run and its logs/chat |
 | `GET`  | `/runs/{id}/chat` | Interactive Q&A history for a run |
 | `POST` | `/runs/{id}/ask` | Ask a **grounded** question about the parsed document |
-| `GET` / `PUT` | `/settings` | Read / persist operational settings (no secrets) |
+| `POST` | `/agent/test` | Live connectivity check for the configured Q&A agent (returns ok/latency, no secrets) |
+| `GET` / `PUT` | `/settings` | Read / persist operational settings **and provider API keys** (keys are write-only) |
 
 Every call to the legacy `/parse` and `/process` endpoints is also recorded in
 run history, so nothing is lost. The single-page console at `/` covers all of
-this: **New Run**, **Run History**, a per-run detail view (parsed output,
-analyst Q&A, an interactive *Ask the document* chat with page citations, and a
-live **Logs** console), and a **Settings** editor.
+this: **New Run** (mode, question count, and optional **peer companies**),
+**Run History**, a per-run detail view (parsed output, analyst Q&A, an
+interactive *Ask the document* chat with page citations, and a live **Logs**
+console), and a **Settings** editor.
+
+**Everything an operator needs is configurable from the UI Settings page** — log
+level, default question count, default peer companies, provider/parser selection,
+models, and the **provider API keys** themselves. Keys are write-only (stored
+server-side, never sent back to the browser), and a **Test agent** button issues
+a minimal live completion so you can confirm the agent works before running a job.
 
 ```bash
 # Parse + generate 10 analyst Q&A pairs, get a Markdown brief back
 curl -s -F "file=@samples/sample_q3_report_with_handwriting.pdf" \
         -F "num_questions=10" \
+        -F "peers=Pfizer,Merck,Novartis" \
         http://localhost:8000/process/markdown
 ```
 
@@ -130,6 +150,10 @@ CLI equivalent:
 ```bash
 python scripts/cli.py parse samples/sample_handwritten_board_notes.pdf
 python scripts/cli.py qa    samples/sample_q3_report_with_handwriting.pdf -n 10 -o qa.md
+
+# Bias the analyst peer-comparison questions toward named comparable companies:
+python scripts/cli.py qa    samples/sample_q3_report_with_handwriting.pdf \
+        -n 12 --peers "Pfizer,Merck,Novartis"
 ```
 
 ## Configuration
@@ -198,7 +222,11 @@ provider factory's config validation, and Q&A generation/Markdown rendering.
 - Q&A answers are grounded: the model is instructed to answer only from the
   document, cite source pages, and caveat figures lifted from handwriting. Output
   is validated against a Pydantic schema; malformed items are dropped, not trusted.
-- Secrets live only in `.env` (git-ignored). `.env.example` documents every key.
+- Secrets can be supplied via `.env` (git-ignored; `.env.example` documents every
+  key) **or** set from the UI Settings page. UI-set keys are stored as write-only
+  overrides in the SQLite store (`DB_PATH`) and are never returned to the client —
+  secure that file and its host like any other credential store, or keep keys in
+  `.env`/your secret manager if you prefer they never touch disk via the app.
 
 ## Sources
 

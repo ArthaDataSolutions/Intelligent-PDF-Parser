@@ -104,8 +104,11 @@ export function renderQA(qa) {
     <article class="qa-item">
       <p class="qa-q">${esc(it.question)}</p>
       <p class="qa-a">${esc(it.answer)}</p>
+      ${it.reasoning ? `<div class="qa-reason">💡 <em>Why it's asked:</em> ${esc(it.reasoning)}</div>` : ""}
+      ${it.peer_context ? `<div class="qa-peer">🔍 <em>Peer context:</em> ${esc(it.peer_context)}</div>` : ""}
       <div class="qa-meta">
-        <span class="badge">${esc(it.category)}</span>
+        ${it.asker ? `<span class="badge">${esc(it.asker)}</span>` : ""}
+        <span class="badge dim">${esc(it.category)}</span>
         <span class="badge dim">conf: ${esc(it.confidence)}</span>
         <span class="badge dim">pages: ${(it.source_pages || []).join(", ") || "—"}</span>
       </div>
